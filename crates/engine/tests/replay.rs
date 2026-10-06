@@ -73,7 +73,7 @@ fn the_simulated_market_stays_healthy() {
     let mut trades = 0;
     for _ in 0..20_000 {
         for e in sim.step(100) {
-            if matches!(e, Event::Trade { .. }) {
+            if matches!(e.event, Event::Trade { .. }) {
                 trades += 1;
             }
         }
@@ -110,5 +110,5 @@ fn player_orders_trade_with_bots() {
     });
     assert!(ev
         .iter()
-        .any(|e| matches!(e, Event::Trade { taker_owner: 0, .. })));
+        .any(|e| matches!(e.event, Event::Trade { taker_owner: 0, .. })));
 }

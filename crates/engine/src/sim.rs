@@ -46,6 +46,14 @@ impl Rng {
     }
 }
 
+/// An event with the journal sequence number and time of the command that caused it.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Stamped {
+    pub seq: u64,
+    pub ts_ms: u64,
+    pub event: Event,
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct SimConfig {
     pub seed: u64,
@@ -159,13 +167,13 @@ impl Sim {
     }
 
     /// The player's command, sequenced at the current time. Returns its events.
-    pub fn player(&mut self, cmd: Command) -> Vec<Event> {
+    pub fn player(&mut self, cmd: Command) -> Vec<Stamped> {
         self.send(PLAYER, cmd)
     }
 
     /// Advances the clock by `dt_ms` and lets the market move. Returns every
     /// event produced, in sequence order.
-    pub fn step(&mut self, dt_ms: u64) -> Vec<Event> {
+    pub fn step(&mut self, dt_ms: u64) -> Vec<Stamped> {
         self.now_ms += dt_ms;
         let mut out = Vec::new();
         // Fair value: a random walk with rare jumps ("news").
@@ -199,8 +207,9 @@ impl Sim {
         ((self.fair_ticks + ticks_from_fair).max(1)) * self.config.tick
     }
 
-    fn send(&mut self, owner: Owner, cmd: Command) -> Vec<Event> {
+    fn send(&mut self, owner: Owner, cmd: Command) -> Vec<Stamped> {
         let events = self.exchange.submit(self.now_ms, cmd).to_vec();
+        let (seq, ts_ms) = (self.exchange.seq(), self.now_ms);
         for e in &events {
             match *e {
                 Event::Accepted {
@@ -241,6 +250,9 @@ impl Sim {
         }
         let _ = owner;
         events
+            .into_iter()
+            .map(|event| Stamped { seq, ts_ms, event })
+            .collect()
     }
 
     fn orders_of(&self, owner: Owner) -> Vec<OrderId> {
@@ -252,7 +264,7 @@ impl Sim {
     }
 
     /// Two-sided quote around fair value, skewed against inventory.
-    fn quote_market_maker(&mut self) -> Vec<Event> {
+    fn quote_market_maker(&mut self) -> Vec<Stamped> {
         let mut out = Vec::new();
         for id in self.orders_of(MARKET_MAKER) {
             out.extend(self.send(
@@ -292,7 +304,7 @@ impl Sim {
     }
 
     /// Random limit orders near fair value, the odd market order, and cancels.
-    fn noise(&mut self, owner: Owner) -> Vec<Event> {
+    fn noise(&mut self, owner: Owner) -> Vec<Stamped> {
         let mine = self.orders_of(owner);
         if mine.len() > 3 || (!mine.is_empty() && self.rng.chance(250)) {
             return self.send(
@@ -329,7 +341,7 @@ impl Sim {
     }
 
     /// Chases the recent trend with a market order, within a position cap.
-    fn momentum(&mut self) -> Vec<Event> {
+    fn momentum(&mut self) -> Vec<Stamped> {
         if self.recent.len() < 10 {
             return Vec::new();
         }

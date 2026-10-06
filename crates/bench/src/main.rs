@@ -10,7 +10,6 @@
 
 use std::time::Instant;
 
-use arena_engine::sim::Rng;
 use arena_engine::*;
 
 fn main() {
@@ -18,7 +17,7 @@ fn main() {
         .nth(1)
         .and_then(|s| s.parse().ok())
         .unwrap_or(2_000_000);
-    let commands = workload(n, 7);
+    let commands = arena_engine::workload::commands(n, 7);
 
     // Throughput: one pass, no per-command timing.
     let mut ex = Exchange::with_capacity(EngineConfig::default(), n);
@@ -69,59 +68,6 @@ fn main() {
     println!("latency p99     {} ns", pct(0.99));
     println!("latency p99.9   {} ns", pct(0.999));
     println!("fingerprint     {:016x}", ex.fingerprint());
-}
-
-/// Generates the command mix up front so generation isn't timed.
-fn workload(n: usize, seed: u64) -> Vec<Command> {
-    let mut rng = Rng::new(seed);
-    let mut mid: i64 = 10_000;
-    let mut next_id: u64 = 1;
-    let mut live: Vec<u64> = Vec::new();
-    let mut out = Vec::with_capacity(n);
-    for _ in 0..n {
-        if rng.chance(20) {
-            mid += rng.below(5) as i64 - 2;
-        }
-        let side = if rng.chance(500) {
-            Side::Buy
-        } else {
-            Side::Sell
-        };
-        match rng.below(100) {
-            0..=59 => {
-                let off = rng.below(20) as i64 - 2;
-                let price = if side == Side::Buy {
-                    mid - off
-                } else {
-                    mid + off
-                };
-                out.push(Command::Limit {
-                    owner: 1,
-                    side,
-                    price,
-                    qty: 1 + rng.below(100),
-                });
-                live.push(next_id);
-                next_id += 1;
-            }
-            60..=84 if !live.is_empty() => {
-                let i = rng.below(live.len() as u64) as usize;
-                out.push(Command::Cancel {
-                    owner: 1,
-                    order_id: live.swap_remove(i),
-                });
-            }
-            _ => {
-                out.push(Command::Market {
-                    owner: 1,
-                    side,
-                    qty: 1 + rng.below(50),
-                });
-                next_id += 1;
-            }
-        }
-    }
-    out
 }
 
 fn kind(c: &Command) -> u8 {

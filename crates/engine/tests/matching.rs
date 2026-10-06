@@ -237,6 +237,9 @@ fn queue_shows_live_orders_front_first() {
     );
     let q: Vec<_> = e.queue(Side::Buy, 100).iter().map(|o| o.id).collect();
     assert_eq!(q, vec![2]);
+    run(&mut e, limit(3, Side::Buy, 100, 7));
+    assert_eq!(e.queue_ahead(3), Some((1, 5)), "behind order 2 only");
+    assert_eq!(e.queue_ahead(1), None, "cancelled");
 }
 
 /// Seeded random commands; invariants hold after every one, and quantity is

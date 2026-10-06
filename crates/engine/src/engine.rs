@@ -363,6 +363,22 @@ impl Engine {
             .unwrap_or_default()
     }
 
+    /// For a live resting order: how many live orders, and how much
+    /// quantity, are ahead of it in its level's queue.
+    pub fn queue_ahead(&self, id: OrderId) -> Option<(u32, Qty)> {
+        let order = self.order(id).filter(|o| o.status.is_live())?;
+        let level = self.side(order.side).level(order.price)?;
+        let (mut n, mut qty) = (0u32, 0);
+        for other in level.queue.iter().take_while(|o| **o != id) {
+            let o = &self.orders[(*other - 1) as usize];
+            if o.status.is_live() {
+                n += 1;
+                qty += o.remaining_qty;
+            }
+        }
+        Some((n, qty))
+    }
+
     /// Structural hash of the resting book: every live order, by side,
     /// price and queue position. Two engines with equal hashes have the
     /// same book, order for order.
