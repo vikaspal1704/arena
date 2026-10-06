@@ -1,0 +1,16 @@
+[workspace]
+resolver = "2"
+members = ["crates/engine", "crates/wasm", "crates/bench", "crates/difftest"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+authors = ["Vikas Pal"]
+repository = "https://github.com/vikaspal1704/arena"
+
+[profile.release]
+opt-level = 3
+lto = true
+codegen-units = 1
+panic = "abort"

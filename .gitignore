@@ -1,0 +1,9 @@
+/target
+node_modules/
+web/dist/
+web/public/arena.wasm
+playwright-report/
+test-results/
+__pycache__/
+*.pyc
+.venv/
