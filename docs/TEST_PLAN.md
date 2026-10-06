@@ -42,6 +42,10 @@ Every test below runs in CI (`.github/workflows/ci.yml`).
 | `fifo_round_trips_and_flips` | FIFO P&L, a flip from long to short, unrealised P&L |
 | `wrapped_counts_maker_share_and_edge_vs_fair` | Maker share, edge against fair value, median rest time |
 | `index_futures_round_trip_charges` | Every charge component, worked by hand |
+| `lesson_one_completes_on_a_taker_fill_and_explains_the_spread_cost` | Lesson progress and its explanation in the player's numbers |
+| `lessons_follow_feed_and_audit_activity` | Chaos lesson needs a gap *and* recovery; audit needs a verified replay |
+| `coach_note_describes_a_fill_in_plain_words` | Spread cost against the mid before the command |
+| `next_steps_are_personal` | "Try this next" advice follows the session's numbers |
 
 ## End to end (`npm run test:e2e`, Playwright, Chromium)
 
@@ -55,3 +59,6 @@ Every test below runs in CI (`.github/workflows/ci.yml`).
 | `e2e_benchmark_runs_in_the_browser` | The 1M-command benchmark completes |
 | `e2e_no_third_party_requests` | Only the page's own origin is contacted |
 | `a11y_intro_desk_and_wrapped` | axe-core, no violations on the intro, the desk and Wrapped |
+| `e2e_lessons_guide_and_explain_with_coach_notes` | Lesson 1 completes on a market buy, explains it, coach note appears, lesson 2 starts |
+| `e2e_glossary_tip_opens_and_closes` | "?" opens a note; Escape closes it |
+| `e2e_layout_stays_still_while_the_market_moves` | 6 s of live market at normal speed: no watched panel moves, cumulative layout shift < 0.05 |

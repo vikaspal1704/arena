@@ -2,8 +2,11 @@ import { useEffect, useState } from 'react';
 import { INSTRUMENT, type Level, type Side } from '../core/types';
 import { clock, money, price as fmtPrice, qty as fmtQty } from '../core/format';
 import type { Exchange } from './useExchange';
+import { Tip } from './Coach';
 
 const LEVELS = 8;
+/** The tape box shows exactly this many rows (fixed height). */
+const TAPE_ROWS = 12;
 
 /** Prices the player has resting, per side: price → qty. */
 function myResting(ex: Exchange): { BUY: Map<number, number>; SELL: Map<number, number> } {
@@ -17,7 +20,8 @@ function myResting(ex: Exchange): { BUY: Map<number, number>; SELL: Map<number, 
 
 export function Header({ ex, onEnd }: { ex: Exchange; onEnd: () => void }) {
   const { bids, asks } = ex.book.depth(1);
-  const last = ex.prices.at(-1) ?? null;
+  // Last trade, or the mid until the first trade happens.
+  const last = ex.prices.at(-1) ?? (bids[0] && asks[0] ? Math.round((bids[0].price + asks[0].price) / 2 / INSTRUMENT.tick) * INSTRUMENT.tick : null);
   const first = ex.prices[0] ?? null;
   const change = last !== null && first !== null ? last - first : 0;
   const paused = ex.status?.paused ?? false;
@@ -28,18 +32,24 @@ export function Header({ ex, onEnd }: { ex: Exchange; onEnd: () => void }) {
       </h1>
       <div className="instrument">
         <span className="muted">{INSTRUMENT.name}</span>
-        <strong className="last" data-testid="last-price">{last === null ? '—' : fmtPrice(last)}</strong>
-        <span className={change >= 0 ? 'up' : 'down'}>{change === 0 ? '' : `${change > 0 ? '▲' : '▼'} ${fmtPrice(Math.abs(change))}`}</span>
+        <strong className="last" data-testid="last-price">
+          {last === null ? '—' : fmtPrice(last)}
+        </strong>
+        <span className={`change ${change >= 0 ? 'up' : 'down'}`}>{change === 0 ? '' : `${change > 0 ? '▲' : '▼'} ${fmtPrice(Math.abs(change))}`}</span>
       </div>
       <Sparkline prices={ex.prices} />
       <dl className="quick">
         <div>
-          <dt>Spread</dt>
-          <dd>{bids[0] && asks[0] ? fmtPrice(asks[0].price - bids[0].price) : '—'}</dd>
+          <dt>
+            Spread <Tip label="the spread">The gap between the best price to buy (ask) and the best price to sell (bid). Crossing it is the cost of trading now.</Tip>
+          </dt>
+          <dd className="w-spread">{bids[0] && asks[0] ? fmtPrice(asks[0].price - bids[0].price) : '—'}</dd>
         </div>
         <div>
           <dt>Clock</dt>
-          <dd data-testid="clock">{clock(ex.status?.nowMs ?? 0)}</dd>
+          <dd className="w-clock" data-testid="clock">
+            {clock(ex.status?.nowMs ?? 0)}
+          </dd>
         </div>
       </dl>
       <div className="controls">
@@ -47,11 +57,12 @@ export function Header({ ex, onEnd }: { ex: Exchange; onEnd: () => void }) {
           <span aria-hidden="true">{paused ? '▶' : '❚❚'}</span> {paused ? 'Resume' : 'Pause'}
         </button>
         <label className="speed">
-          <span className="sr-only">Speed</span>
-          <select defaultValue="1" onChange={(e) => ex.speed(Number(e.target.value))}>
-            <option value="1">1×</option>
-            <option value="2">2×</option>
-            <option value="4">4×</option>
+          <span className="sr-only">Market speed</span>
+          <select defaultValue="0.5" onChange={(e) => ex.speed(Number(e.target.value))}>
+            <option value="0.25">Slow</option>
+            <option value="0.5">Calm</option>
+            <option value="1">Normal</option>
+            <option value="2">Fast</option>
           </select>
         </label>
         <button type="button" className="primary" onClick={onEnd}>
@@ -77,21 +88,38 @@ function Sparkline({ prices }: { prices: number[] }) {
   );
 }
 
+/** Always `n` slots, so the ladder never changes height and the spread row never moves. */
+function slots(levels: Level[], n: number): (Level | null)[] {
+  return Array.from({ length: n }, (_, i) => levels[i] ?? null);
+}
+
 export function Ladder({ ex, onPick }: { ex: Exchange; onPick: (side: Side, price: number) => void }) {
   const replay = ex.replayView;
   const live = ex.book.depth(LEVELS);
   const { bids, asks } = replay ? { bids: replay.bids.slice(0, LEVELS), asks: replay.asks.slice(0, LEVELS) } : live;
   const mine = myResting(ex);
   const max = Math.max(1, ...bids.map((l) => l.qty), ...asks.map((l) => l.qty));
-  const row = (side: Side, l: Level) => {
+  const row = (side: Side, l: Level | null, slot: number) => {
+    // Rows are keyed by slot, not price: the DOM stays put and only the numbers change.
+    const key = `${side}${slot}`;
+    if (!l) {
+      return (
+        <li key={key} className="row empty" aria-hidden="true">
+          <span />
+        </li>
+      );
+    }
     const my = replay ? 0 : (mine[side].get(l.price) ?? 0);
     return (
-      <li key={`${side}${l.price}`} className={`row ${side === 'BUY' ? 'bid' : 'ask'}${my ? ' mine' : ''}`}>
-        <button type="button" onClick={() => onPick(side === 'BUY' ? 'SELL' : 'BUY', l.price)} title={`${side === 'BUY' ? 'Sell' : 'Buy'} at ${fmtPrice(l.price)}`}>
-          <span className="bar" style={{ width: `${(l.qty / max) * 100}%` }} aria-hidden="true" />
+      <li key={key} className={`row ${side === 'BUY' ? 'bid' : 'ask'}${my ? ' mine' : ''}`}>
+        <button type="button" onClick={() => onPick(side === 'BUY' ? 'SELL' : 'BUY', l.price)} aria-label={`${side === 'BUY' ? 'Sell' : 'Buy'} at ${fmtPrice(l.price)}, ${fmtQty(l.qty)} ${side === 'BUY' ? 'bid' : 'offered'}`}>
+          <span className="bar" style={{ transform: `scaleX(${l.qty / max})` }} aria-hidden="true" />
           <span className="you">{my ? `● ${fmtQty(my)}` : ''}</span>
           <span className="px">{fmtPrice(l.price)}</span>
-          <span className="sz">{fmtQty(l.qty)}</span>
+          {/* Keyed by value: a change remounts the cell, which plays a brief highlight. */}
+          <span className="sz flash" key={`${l.price}-${l.qty}`}>
+            {fmtQty(l.qty)}
+          </span>
           <span className="n">{l.orders}</span>
         </button>
       </li>
@@ -100,7 +128,11 @@ export function Ladder({ ex, onPick }: { ex: Exchange; onPick: (side: Side, pric
   return (
     <section className="panel ladder" aria-labelledby="book-h">
       <h2 id="book-h">
-        Order book <span className="muted">{replay ? `· replay at #${replay.upto}` : `· L2, ${ex.book.status === 'live' ? 'live' : 'recovering…'}`}</span>
+        Order book{' '}
+        <Tip label="the order book">
+          Every resting order, grouped by price. Sellers (asks, red) above, buyers (bids, green) below. At each price, earlier orders fill first.
+        </Tip>{' '}
+        <span className="muted">{replay ? `· replay at #${replay.upto}` : `· ${ex.book.status === 'live' ? 'live' : 'recovering…'}`}</span>
       </h2>
       <div className="ladder-head" aria-hidden="true">
         <span>You</span>
@@ -109,7 +141,9 @@ export function Ladder({ ex, onPick }: { ex: Exchange; onPick: (side: Side, pric
         <span>Orders</span>
       </div>
       <ol className="asks" aria-label="Asks (sellers), best last">
-        {[...asks].reverse().map((l) => row('SELL', l))}
+        {slots(asks, LEVELS)
+          .map((l, i) => row('SELL', l, i))
+          .reverse()}
       </ol>
       <div className="mid">
         {bids[0] && asks[0] ? (
@@ -121,7 +155,7 @@ export function Ladder({ ex, onPick }: { ex: Exchange; onPick: (side: Side, pric
         )}
       </div>
       <ol className="bids" aria-label="Bids (buyers), best first">
-        {bids.map((l) => row('BUY', l))}
+        {slots(bids, LEVELS).map((l, i) => row('BUY', l, i))}
       </ol>
       <p className="hint">Tap a price to load it into the ticket.</p>
     </section>
@@ -154,7 +188,12 @@ export function Ticket({ ex, picked }: { ex: Exchange; picked: { side: Side; pri
   };
   return (
     <section className="panel ticket" aria-labelledby="ticket-h">
-      <h2 id="ticket-h">Order ticket</h2>
+      <h2 id="ticket-h">
+        Order ticket{' '}
+        <Tip label="limit and market orders">
+          Limit: you name the worst price you accept; if it can’t trade now it waits in the book. Market: trade now at whatever the book offers; anything left over expires.
+        </Tip>
+      </h2>
       <div className="seg" role="group" aria-label="Side">
         <button type="button" className={side === 'BUY' ? 'on buy' : ''} aria-pressed={side === 'BUY'} onClick={() => setSide('BUY')}>
           Buy
@@ -230,7 +269,12 @@ export function PositionPanel({ ex }: { ex: Exchange }) {
   const avg = a.avgOpenPrice();
   return (
     <section className="panel position" aria-labelledby="pos-h">
-      <h2 id="pos-h">Position</h2>
+      <h2 id="pos-h">
+        Position{' '}
+        <Tip label="charges">
+          Real Indian index-futures charges: ₹20 brokerage per order, STT 0.05% on every sale, exchange and SEBI fees, stamp duty on buys, and 18% GST.
+        </Tip>
+      </h2>
       <dl className="stats">
         <div>
           <dt>Net qty</dt>
@@ -268,54 +312,68 @@ export function PositionPanel({ ex }: { ex: Exchange }) {
 
 export function MyOrders({ ex }: { ex: Exchange }) {
   const live = ex.account.liveOrders();
-  const fills = ex.account.fills.slice(-6).reverse();
+  const fills = ex.account.fills.slice(-8).reverse();
   const queue = ex.status?.queue ?? {};
   return (
     <section className="panel orders" aria-labelledby="orders-h">
-      <h2 id="orders-h">Your orders</h2>
-      {live.length === 0 ? (
-        <p className="muted small">No resting orders.</p>
-      ) : (
-        <ul className="list">
-          {live.map((o) => {
-            const q = queue[o.orderId];
-            return (
-              <li key={o.orderId}>
-                <span className={o.side === 'BUY' ? 'up' : 'down'}>{o.side === 'BUY' ? 'Buy' : 'Sell'}</span> {fmtQty(o.remaining)} @ {fmtPrice(o.price!)}
-                <span className="muted small">{q ? (q[0] === 0 ? ' · front of queue' : ` · ${q[0]} ahead (${fmtQty(q[1])})`) : ''}</span>
-                <button type="button" className="link" onClick={() => ex.cancel(o.orderId)} aria-label={`Cancel order ${o.orderId}`}>
-                  Cancel
-                </button>
+      <h2 id="orders-h">
+        Your orders{' '}
+        <Tip label="queue position">
+          Resting orders wait in line at their price. “2 ahead” means two earlier orders must fill or cancel before yours can trade.
+        </Tip>
+      </h2>
+      <div className="box">
+        {live.length === 0 ? (
+          <p className="muted small">No resting orders. Limit orders that don’t fill at once wait here.</p>
+        ) : (
+          <ul className="list">
+            {live.map((o) => {
+              const q = queue[o.orderId];
+              return (
+                <li key={o.orderId}>
+                  <span className={o.side === 'BUY' ? 'up' : 'down'}>{o.side === 'BUY' ? 'Buy' : 'Sell'}</span> {fmtQty(o.remaining)} @ {fmtPrice(o.price!)}
+                  <span className="muted small">{q ? (q[0] === 0 ? ' · front of queue' : ` · ${q[0]} ahead (${fmtQty(q[1])})`) : ''}</span>
+                  <button type="button" className="link" onClick={() => ex.cancel(o.orderId)} aria-label={`Cancel order ${o.orderId}`}>
+                    Cancel
+                  </button>
+                </li>
+              );
+            })}
+          </ul>
+        )}
+      </div>
+      <h3>
+        Fills{' '}
+        <Tip label="maker and taker">
+          Taker: your order crossed the spread and traded at once. Maker: your resting order was hit by someone else, so they paid the spread.
+        </Tip>
+      </h3>
+      <div className="box">
+        {fills.length === 0 ? (
+          <p className="muted small">None yet.</p>
+        ) : (
+          <ul className="list small" data-testid="fills">
+            {fills.map((f, i) => (
+              <li key={`${f.seq}-${i}`}>
+                <span className={f.side === 'BUY' ? 'up' : 'down'}>{f.side === 'BUY' ? 'Bought' : 'Sold'}</span> {fmtQty(f.qty)} @ {fmtPrice(f.price)}{' '}
+                <span className="tag">{f.liquidity === 'MAKER' ? 'maker' : 'taker'}</span> <span className="muted">#{f.seq}</span>
               </li>
-            );
-          })}
-        </ul>
-      )}
-      <h3>Fills</h3>
-      {fills.length === 0 ? (
-        <p className="muted small">None yet.</p>
-      ) : (
-        <ul className="list small" data-testid="fills">
-          {fills.map((f, i) => (
-            <li key={`${f.seq}-${i}`}>
-              <span className={f.side === 'BUY' ? 'up' : 'down'}>{f.side === 'BUY' ? 'Bought' : 'Sold'}</span> {fmtQty(f.qty)} @ {fmtPrice(f.price)}{' '}
-              <span className="tag">{f.liquidity === 'MAKER' ? 'maker' : 'taker'}</span> <span className="muted">#{f.seq}</span>
-            </li>
-          ))}
-        </ul>
-      )}
+            ))}
+          </ul>
+        )}
+      </div>
     </section>
   );
 }
 
 export function Tape({ ex }: { ex: Exchange }) {
-  const rows = ex.tape.slice(0, 18);
+  const rows = ex.tape.slice(0, TAPE_ROWS);
   return (
     <section className="panel tape" aria-labelledby="tape-h">
       <h2 id="tape-h">Trades</h2>
-      <ol className="list mono small" aria-live="off">
+      <ol className="list mono small tape-rows" aria-live="off">
         {rows.map((t) => (
-          <li key={t.tradeId} className={t.mine ? 'mine' : ''}>
+          <li key={t.tradeId} className={`flash${t.mine ? ' mine' : ''}`}>
             <span className="muted">{clock(t.ts)}</span>
             <span className={t.aggressor === 'BUY' ? 'up' : 'down'}>{fmtPrice(t.price)}</span>
             <span>{fmtQty(t.qty)}</span>

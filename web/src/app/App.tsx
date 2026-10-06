@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import type { Side } from '../core/types';
+import { CoachNotes, LessonStrip } from './Coach';
 import { Intro, REPO } from './Intro';
 import { Header, Ladder, MyOrders, PositionPanel, Tape, Ticket } from './Trading';
 import { UnderTheHood } from './UnderTheHood';
@@ -16,6 +17,8 @@ export function App() {
   const ex = useExchange();
   const [started, setStarted] = useState(false);
   const [picked, setPicked] = useState<{ side: Side; price: number; n: number } | null>(null);
+  /** Net P&L of the last finished session in this visit (kept in memory only). */
+  const [previousNet, setPreviousNet] = useState<number | null>(null);
 
   const begin = useCallback(
     (seed: number) => {
@@ -34,12 +37,23 @@ export function App() {
   }, [ex.start]);
 
   if (ex.ended) {
-    return <Wrapped ex={ex} ended={ex.ended} onRestart={(same) => begin(same ? ex.seed! : 1 + Math.floor(Math.random() * 1_000_000))} />;
+    return (
+      <Wrapped
+        ex={ex}
+        ended={ex.ended}
+        previousNet={previousNet}
+        onRestart={(same, net) => {
+          setPreviousNet(net);
+          begin(same ? ex.seed! : 1 + Math.floor(Math.random() * 1_000_000));
+        }}
+      />
+    );
   }
 
   return (
     <>
       <Header ex={ex} onEnd={ex.end} />
+      <LessonStrip ex={ex} />
       <main className="desk">
         <Ladder ex={ex} onPick={(side, price) => setPicked((p) => ({ side, price, n: (p?.n ?? 0) + 1 }))} />
         <div className="middle">
@@ -55,6 +69,7 @@ export function App() {
       <footer className="foot small muted">
         Arena · simulated market, play money · <a href={REPO}>source</a> · by Vikas Pal
       </footer>
+      <CoachNotes ex={ex} />
       {!started && <Intro onStart={() => setStarted(true)} />}
     </>
   );

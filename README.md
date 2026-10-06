@@ -19,7 +19,7 @@ Built by **Vikas Pal** (Software Engineer, Fintech). Arena brings together three
 
 ## Try it in 60 seconds
 
-1. Open the [live demo](https://vikaspal1704.github.io/arena/) and press **Start trading**.
+1. Open the [live demo](https://vikaspal1704.github.io/arena/) and press **Start the lessons**. Seven hands-on lessons (take liquidity, make liquidity, cancel, close a round trip, break the feed, audit the exchange, read your Wrapped) each end with an explanation in your own numbers, and a coach note explains every fill. The **?** buttons explain the jargon.
 2. Buy one lot at market. You pay the spread, and the **Position** panel shows what the charges already cost you.
 3. Click a price in the book to place a limit order, then watch **Your orders** count down the queue ahead of you.
 4. Under the hood, drag **Chaos** to 30%: packets are dropped, the client detects the gaps and heals from snapshots.
@@ -52,7 +52,8 @@ flowchart LR
 - **Bots** (`sim.rs`): a market maker that skews its quotes against inventory, noise traders, and a momentum trader, all around a hidden fair value that drifts and occasionally jumps. They go through the sequencer like anyone else, so replaying needs no bot logic.
 - **WebAssembly** (`crates/wasm`): plain exported functions; results are written to a buffer in module memory that TypeScript reads directly. Native and WebAssembly builds produce the same fingerprint (checked in CI).
 - **Two channels**, like a real venue: market data is a numbered, lossy stream of deltas with gap detection and snapshot recovery; the player's own order events use a reliable private channel.
-- **Session Wrapped** (`web/src/core/session.ts`): FIFO round trips, charges from F&O Wrapped's dated rate table, and edge against fair value.
+- **Session Wrapped** (`web/src/core/session.ts`): FIFO round trips, charges from F&O Wrapped's dated rate table, edge against fair value, personal "try this next" advice, and a comparison with your previous session.
+- **A screen you can read while it moves**: the ladder has fixed slots so rows never jump, changed quantities flash briefly instead of moving, and boxes have fixed sizes. Cumulative layout shift during live trading fell from 0.25 to 0.009, and a browser test keeps it under 0.05.
 
 Design decisions and trade-offs: [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md).
 

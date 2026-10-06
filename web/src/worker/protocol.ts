@@ -8,7 +8,8 @@ export type ToExchange =
   | { type: 'market'; side: Side; qty: number }
   | { type: 'cancel'; orderId: number }
   | { type: 'pause'; paused: boolean }
-  | { type: 'speed'; stepsPerTick: number }
+  /** Market steps per real 100 ms (0.5 = half speed). */
+  | { type: 'speed'; speed: number }
   | { type: 'chaos'; dropRate: number }
   | { type: 'resync' }
   | { type: 'replay'; upto: number }
@@ -21,7 +22,7 @@ export type FromExchange =
   | Delta
   | Snapshot
   /** The player's own order events. Reliable: never dropped by chaos mode. */
-  | { type: 'private'; events: ArenaEvent[]; fair: number }
+  | { type: 'private'; events: ArenaEvent[]; fair: number; mid: number | null }
   | {
       type: 'status';
       seq: number;

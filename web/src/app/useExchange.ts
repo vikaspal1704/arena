@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { FeedBook, type TapeTrade } from '../core/feed';
-import { Account } from '../core/session';
+import { Account, spreadPnl, type Fill } from '../core/session';
+import { money, price as fmtPrice, qty as fmtQty } from '../core/format';
 import type { JournalRow, Level, Side } from '../core/types';
 import type { FromExchange, ToExchange } from '../worker/protocol';
 
@@ -31,6 +32,28 @@ export interface Ended {
   verified: boolean;
 }
 
+export interface CoachNote {
+  id: number;
+  tone: 'good' | 'bad' | 'info';
+  text: string;
+}
+
+/** One sentence about a fill, in plain words. */
+export function describeFill(f: Fill): CoachNote['text'] {
+  const verb = f.side === 'BUY' ? 'Bought' : 'Sold';
+  const what = `${verb} ${fmtQty(f.qty)} @ ${fmtPrice(f.price)}`;
+  const pnl = spreadPnl(f);
+  if (f.liquidity === 'TAKER') {
+    return pnl === null ? `${what}: you crossed the spread.` : `${what}: crossing the spread cost ${money(Math.max(0, -pnl))} against the mid.`;
+  }
+  return pnl !== null && pnl > 0
+    ? `${what}: your resting order was hit. You earned ${money(pnl)} against the mid.`
+    : `${what}: your resting order was hit, so someone else paid the spread.`;
+}
+
+const NOTE_MS = 6000;
+const MAX_NOTES = 3;
+
 const TAPE = 40;
 const PRICES = 240;
 
@@ -49,6 +72,9 @@ export function useExchange() {
   const [replay, setReplay] = useState<ReplayView | null>(null);
   const [ended, setEnded] = useState<Ended | null>(null);
   const [seed, setSeed] = useState<number | null>(null);
+  const [notes, setNotes] = useState<CoachNote[]>([]);
+  const [replayVerified, setReplayVerified] = useState(false);
+  const noteId = useRef(0);
   const [, setVersion] = useState(0);
   const frame = useRef(0);
 
@@ -86,14 +112,28 @@ export function useExchange() {
           if (prices.current.length > PRICES) prices.current.splice(0, prices.current.length - PRICES);
           break;
         }
-        case 'private':
-          account.current.apply(msg.events, msg.fair);
+        case 'private': {
+          const before = account.current.fills.length;
+          account.current.apply(msg.events, msg.fair, msg.mid);
+          const fresh = account.current.fills.slice(before).map((f): CoachNote => {
+            const pnl = spreadPnl(f);
+            return { id: ++noteId.current, tone: pnl === null ? 'info' : pnl > 0 ? 'good' : 'bad', text: describeFill(f) };
+          });
+          if (msg.events.some((e) => e.kind === 'rejected')) {
+            fresh.push({ id: ++noteId.current, tone: 'bad', text: 'Order rejected: check the price is on the ₹0.05 tick and the order is still live.' });
+          }
+          if (fresh.length) {
+            setNotes((n) => [...n, ...fresh].slice(-MAX_NOTES));
+            for (const note of fresh) setTimeout(() => setNotes((n) => n.filter((x) => x.id !== note.id)), NOTE_MS);
+          }
           break;
+        }
         case 'status':
           setStatus(msg);
           break;
         case 'replay':
           setReplay(msg);
+          if (msg.matches) setReplayVerified(true);
           break;
         case 'journal':
           journalWaiter?.(msg);
@@ -124,6 +164,7 @@ export function useExchange() {
       prices.current = [];
       setReplay(null);
       setEnded(null);
+      setNotes([]);
       send({ type: 'start', seed: s });
     },
     [send],
@@ -139,8 +180,9 @@ export function useExchange() {
         if (!paused) setReplay(null);
         send({ type: 'pause', paused });
       },
-      speed: (stepsPerTick: number) => send({ type: 'speed', stepsPerTick }),
+      speed: (speed: number) => send({ type: 'speed', speed }),
       chaos: (dropRate: number) => send({ type: 'chaos', dropRate }),
+      dismissNote: (id: number) => setNotes((n) => n.filter((x) => x.id !== id)),
       replay: (upto: number) => send({ type: 'replay', upto }),
       end: () => send({ type: 'end' }),
       journal: () =>
@@ -149,7 +191,7 @@ export function useExchange() {
     [send, start],
   );
 
-  return { book: book.current, account: account.current, tape: tape.current, prices: prices.current, status, replayView: replay, ended, seed, ...actions };
+  return { book: book.current, account: account.current, tape: tape.current, prices: prices.current, status, replayView: replay, ended, seed, notes, replayVerified, ...actions };
 }
 
 export type Exchange = ReturnType<typeof useExchange>;

@@ -18,7 +18,9 @@ let core: ArenaCore | null = null;
 let feed = new FeedPublisher(1);
 let seed = 0;
 let paused = false;
-let stepsPerTick = 1;
+/** Market steps per 100 ms tick; below 1 slows the market down (0.5 = a step every other tick). */
+let speed = 0.5;
+let stepCredit = 0;
 let timer: ReturnType<typeof setInterval> | null = null;
 const myLive = new Set<number>();
 
@@ -34,8 +36,14 @@ function isMine(e: ArenaEvent): boolean {
   return e.owner === PLAYER;
 }
 
-/** Fans one batch of engine events out to the two channels. */
-function publish(events: ArenaEvent[]): void {
+/** Mid price right now, or null when one side is empty. */
+function mid(): number | null {
+  const { bids, asks } = core!.depth(1);
+  return bids[0] && asks[0] ? (bids[0].price + asks[0].price) / 2 : null;
+}
+
+/** Fans one batch of engine events out to the two channels. `midBefore` is the mid before the batch. */
+function publish(events: ArenaEvent[], midBefore: number | null): void {
   const c = core!;
   const levels: { side: 'BUY' | 'SELL'; price: number; qty: number; orders: number }[] = [];
   const trades: TapeTrade[] = [];
@@ -53,7 +61,7 @@ function publish(events: ArenaEvent[]): void {
   }
   const delta = feed.publish(levels, trades);
   if (delta) post(delta);
-  if (mine.length) post({ type: 'private', events: mine, fair: c.fairPrice() });
+  if (mine.length) post({ type: 'private', events: mine, fair: c.fairPrice(), mid: midBefore });
 }
 
 function status(): void {
@@ -68,9 +76,12 @@ function status(): void {
 
 function tick(): void {
   if (!core || paused) return;
+  stepCredit += speed;
+  if (stepCredit < 1) return;
+  const before = mid();
   const events: ArenaEvent[] = [];
-  for (let i = 0; i < stepsPerTick; i++) events.push(...core.step(TICK_MS));
-  publish(events);
+  for (; stepCredit >= 1; stepCredit--) events.push(...core.step(TICK_MS));
+  publish(events, before);
   status();
 }
 
@@ -99,20 +110,20 @@ self.onmessage = async (event: MessageEvent<ToExchange>) => {
   if (!core) return;
   switch (msg.type) {
     case 'limit':
-      if (!paused) publish(core.limit(msg.side, msg.price, msg.qty));
+      if (!paused) publish(core.limit(msg.side, msg.price, msg.qty), mid());
       break;
     case 'market':
-      if (!paused) publish(core.market(msg.side, msg.qty));
+      if (!paused) publish(core.market(msg.side, msg.qty), mid());
       break;
     case 'cancel':
-      if (!paused) publish(core.cancel(msg.orderId));
+      if (!paused) publish(core.cancel(msg.orderId), mid());
       break;
     case 'pause':
       paused = msg.paused;
       if (!paused) snapshot(); // the replay view may have been shown; resume from the live book
       break;
     case 'speed':
-      stepsPerTick = Math.max(1, Math.min(8, Math.round(msg.stepsPerTick)));
+      speed = Math.max(0.25, Math.min(4, msg.speed));
       break;
     case 'chaos':
       feed.dropRate = Math.max(0, Math.min(0.5, msg.dropRate));

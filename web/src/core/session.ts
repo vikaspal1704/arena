@@ -32,6 +32,8 @@ export interface Fill {
   liquidity: 'MAKER' | 'TAKER';
   /** The hidden fair value at the time (revealed in Wrapped). */
   fair: number;
+  /** Mid price just before the command that caused the fill, or null if the book was one-sided. */
+  mid: number | null;
 }
 
 export interface RoundTrip {
@@ -87,8 +89,11 @@ export class Account {
   private lots: Lot[] = [];
   private tripStart: { ts: number; side: 'LONG' | 'SHORT'; pnl: number; maxQty: number } | null = null;
 
-  /** Applies the player's events (others are ignored). `fair` is the fair value right now. */
-  apply(events: readonly ArenaEvent[], fair: number): void {
+  /**
+   * Applies the player's events (others are ignored). `fair` is the fair value
+   * right now; `mid` is the mid price just before the command, if known.
+   */
+  apply(events: readonly ArenaEvent[], fair: number, mid: number | null = null): void {
     for (const e of events) {
       switch (e.kind) {
         case 'accepted':
@@ -119,7 +124,7 @@ export class Account {
             order.remaining -= e.qty;
             order.filledValue += e.price * e.qty;
             order.status = order.remaining === 0 ? 'FILLED' : 'PARTIAL';
-            this.fills.push({ seq: e.seq, ts: e.ts, orderId, side: order.side, price: e.price, qty: e.qty, liquidity, fair });
+            this.fills.push({ seq: e.seq, ts: e.ts, orderId, side: order.side, price: e.price, qty: e.qty, liquidity, fair, mid });
             this.book(order.side, e.price, e.qty, e.ts);
           }
           break;
@@ -222,4 +227,13 @@ export class Account {
       durationMs,
     };
   }
+}
+
+/**
+ * What a fill cost or earned against the mid before it: positive = earned
+ * (a passive fill inside the old mid), negative = paid (crossing the spread).
+ */
+export function spreadPnl(f: Fill): number | null {
+  if (f.mid === null) return null;
+  return Math.round((f.side === 'BUY' ? f.mid - f.price : f.price - f.mid) * f.qty);
 }

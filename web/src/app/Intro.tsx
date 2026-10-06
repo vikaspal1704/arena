@@ -12,6 +12,9 @@ export function Intro({ onStart }: { onStart: () => void }) {
           Trade index futures against a market of bots. Watch your order wait in the queue, pay the spread, pay real Indian charges. Then rewind the whole
           exchange and check every order.
         </p>
+        <p className="lede small-lede">
+          New to order books? Seven short hands-on lessons guide you through it, with every result explained in your own numbers.
+        </p>
         <ul className="pitch">
           <li>
             <strong>Matching engine in Rust</strong>, compiled to a 79 KB WebAssembly module with no JavaScript glue. Price-time priority, about 2 million
@@ -31,7 +34,7 @@ export function Intro({ onStart }: { onStart: () => void }) {
         </ul>
         <div className="actions">
           <button type="button" className="primary" onClick={onStart} autoFocus>
-            Start trading
+            Start the lessons
           </button>
           <a className="button" href={REPO} target="_blank" rel="noreferrer">
             Source on GitHub

@@ -126,6 +126,21 @@ button.link {
   font-family: inherit;
 }
 
+/* A value that just changed gets a short highlight instead of moving. */
+@keyframes flash {
+  from {
+    background-color: color-mix(in srgb, var(--accent) 16%, transparent);
+  }
+  to {
+    background-color: transparent;
+  }
+}
+
+.flash {
+  animation: flash 700ms ease-out;
+  border-radius: 3px;
+}
+
 /* Top bar */
 .topbar {
   display: flex;
@@ -160,6 +175,23 @@ button.link {
 .instrument .last {
   font-size: 1.35rem;
   font-variant-numeric: tabular-nums;
+  display: inline-block;
+  min-width: 9ch;
+  text-align: right;
+}
+
+.instrument .change {
+  display: inline-block;
+  min-width: 7ch;
+  font-variant-numeric: tabular-nums;
+}
+
+.w-spread {
+  min-width: 4ch;
+}
+
+.w-clock {
+  min-width: 5ch;
 }
 
 .spark {
@@ -262,14 +294,19 @@ button.link {
   padding: 0;
 }
 
+.ladder .row,
+.ladder .row button {
+  height: 28px;
+}
+
 .ladder .row button {
   position: relative;
   width: 100%;
   background: none;
   border: none;
   border-radius: 4px;
-  padding: 0.18rem 0.5rem;
-  min-height: 26px;
+  padding: 0 0.5rem;
+  min-height: 0;
   text-align: left;
 }
 
@@ -279,12 +316,22 @@ button.link {
 
 .ladder .bar {
   position: absolute;
-  top: 2px;
-  bottom: 2px;
+  top: 3px;
+  bottom: 3px;
   right: 0;
+  width: 100%;
   border-radius: 3px;
   opacity: 0.16;
   pointer-events: none;
+  /* Scale, not width: no layout work, and it eases instead of jumping. */
+  transform-origin: right center;
+  transition: transform 300ms ease-out;
+}
+
+.ladder .row.empty span {
+  display: block;
+  height: 100%;
+  border-bottom: 1px dashed color-mix(in srgb, var(--line) 50%, transparent);
 }
 
 .ladder .bid .bar {
@@ -461,6 +508,22 @@ button.link {
   padding: 0;
   display: grid;
   gap: 0.3rem;
+}
+
+.orders .box {
+  height: 7.5rem;
+  overflow-y: auto;
+}
+
+.tape-rows {
+  height: calc(12 * 1.55rem);
+  overflow: hidden;
+  gap: 0 !important;
+}
+
+.tape-rows li {
+  height: 1.55rem;
+  align-items: center;
 }
 
 .orders li {
@@ -690,10 +753,11 @@ button.link {
   }
   .topbar {
     padding: 0.6rem 1rem;
+    /* A sticky bar this tall would cover a quarter of a phone screen. */
+    position: static;
   }
   .spark {
-    width: 100%;
-    order: 10;
+    display: none;
   }
   .controls {
     margin-left: 0;
@@ -720,5 +784,222 @@ button.link {
 @media (prefers-reduced-motion: reduce) {
   * {
     scroll-behavior: auto !important;
+  }
+  .flash {
+    animation: none;
+  }
+  .ladder .bar {
+    transition: none;
+  }
+}
+
+/* Lessons */
+.lessons {
+  margin: 1rem 1.25rem 0;
+  padding: 0.7rem 1rem;
+  border: 1px solid color-mix(in srgb, var(--accent) 40%, var(--line));
+  background: linear-gradient(90deg, color-mix(in srgb, var(--accent) 10%, var(--panel)), var(--panel));
+  border-radius: var(--radius);
+  min-height: 6.6rem;
+}
+
+.lessons.collapsed {
+  min-height: 0;
+  display: flex;
+  gap: 0.8rem;
+  align-items: center;
+  border-color: var(--line);
+  background: var(--panel);
+  padding: 0.35rem 1rem;
+}
+
+.lessons-head {
+  display: flex;
+  align-items: center;
+  gap: 0.9rem;
+}
+
+.lessons-head h2 {
+  margin: 0;
+  font-size: 0.95rem;
+}
+
+.lessons-head .link {
+  margin-left: auto;
+}
+
+.dots {
+  display: flex;
+  gap: 0.35rem;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.dots li {
+  width: 1.6rem;
+  height: 0.4rem;
+  border-radius: 99px;
+  background: var(--line);
+}
+
+.dots li.done {
+  background: var(--up);
+}
+
+.dots li.now {
+  background: var(--accent);
+}
+
+.lesson-body {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  margin-top: 0.45rem;
+}
+
+.lesson-body p {
+  margin: 0;
+  flex: 1;
+}
+
+.lesson-body .where {
+  display: inline-block;
+  margin-left: 0.4rem;
+  padding: 0.05rem 0.5rem;
+  border-radius: 99px;
+  border: 1px solid var(--line);
+  color: var(--muted);
+  font-size: 0.8rem;
+}
+
+.lesson-body.learned p strong {
+  color: var(--up);
+}
+
+/* Coach notes: fixed corner, never in the layout flow */
+.notes {
+  position: fixed;
+  right: 1rem;
+  bottom: 1rem;
+  z-index: 15;
+  display: grid;
+  gap: 0.5rem;
+  width: min(380px, calc(100vw - 2rem));
+  pointer-events: none;
+}
+
+.note-card {
+  pointer-events: auto;
+  display: flex;
+  gap: 0.5rem;
+  align-items: flex-start;
+  padding: 0.6rem 0.8rem;
+  border-radius: 10px;
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+  border-left: 3px solid var(--accent);
+  box-shadow: 0 8px 24px rgb(0 0 0 / 0.35);
+  font-size: 0.88rem;
+  animation: note-in 200ms ease-out;
+}
+
+.note-card.good {
+  border-left-color: var(--up);
+}
+
+.note-card.bad {
+  border-left-color: var(--down);
+}
+
+.note-card span {
+  flex: 1;
+}
+
+@keyframes note-in {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+}
+
+/* Glossary tips */
+.tip {
+  position: relative;
+  display: inline-block;
+}
+
+.tip-btn {
+  min-height: 0;
+  width: 1.15rem;
+  height: 1.15rem;
+  padding: 0;
+  border-radius: 50%;
+  font-size: 0.7rem;
+  font-weight: 700;
+  color: var(--muted);
+  vertical-align: middle;
+}
+
+.tip-bubble {
+  position: absolute;
+  z-index: 12;
+  top: calc(100% + 6px);
+  left: -0.5rem;
+  width: min(280px, 80vw);
+  padding: 0.6rem 0.75rem;
+  border-radius: 10px;
+  background: #0f1520;
+  border: 1px solid var(--accent);
+  color: var(--text);
+  font-size: 0.82rem;
+  font-weight: 400;
+  line-height: 1.4;
+  text-transform: none;
+  letter-spacing: normal;
+  box-shadow: 0 8px 24px rgb(0 0 0 / 0.4);
+}
+
+/* Wrapped extras */
+.versus {
+  font-weight: 600;
+  margin: 0.2rem 0 0;
+}
+
+.next {
+  margin-top: 1.2rem;
+  padding: 1rem 1.2rem;
+  border-radius: 14px;
+  border: 1px solid color-mix(in srgb, var(--accent) 40%, var(--line));
+  background: color-mix(in srgb, var(--accent) 8%, var(--panel));
+}
+
+.next h2 {
+  margin: 0 0 0.4rem;
+  font-size: 0.95rem;
+}
+
+.next ol {
+  margin: 0;
+  padding-left: 1.2rem;
+  display: grid;
+  gap: 0.3rem;
+}
+
+.small-lede {
+  font-size: 0.98rem;
+  color: var(--muted);
+}
+
+@media (max-width: 720px) {
+  .lessons {
+    margin: 0.75rem 1rem 0;
+  }
+  .lesson-body {
+    flex-direction: column;
+    align-items: stretch;
+  }
+  .dots li {
+    width: 1rem;
   }
 }

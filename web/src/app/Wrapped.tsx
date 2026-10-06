@@ -1,16 +1,32 @@
 import { duration, money, price as fmtPrice, qty as fmtQty } from '../core/format';
 import type { WrappedSummary } from '../core/session';
+import { LESSONS, nextSteps } from '../core/lessons';
+import { lessonFacts } from './Coach';
 import type { Ended, Exchange } from './useExchange';
 
 const pct = (x: number) => `${Math.round(x * 100)}%`;
 
 /** End of session: the player's trading, Wrapped (after vikaspal1704/fo-wrapped). */
-export function Wrapped({ ex, ended, onRestart }: { ex: Exchange; ended: Ended; onRestart: (sameMarket: boolean) => void }) {
+export function Wrapped({
+  ex,
+  ended,
+  previousNet,
+  onRestart,
+}: {
+  ex: Exchange;
+  ended: Ended;
+  /** Net P&L of the previous session in this visit, if any. */
+  previousNet: number | null;
+  onRestart: (sameMarket: boolean, net: number) => void;
+}) {
   const { bids, asks } = ex.book.depth(1);
   const mark = bids[0] && asks[0] ? Math.round((bids[0].price + asks[0].price) / 2) : (ex.prices.at(-1) ?? ended.fair);
   const w: WrappedSummary = ex.account.wrapped(mark, ended.nowMs);
   const c = w.charges;
   const noTrades = w.fills === 0;
+  const facts = lessonFacts(ex);
+  const lessonsDone = LESSONS.filter((l) => l.done(facts)).length;
+  const steps = nextSteps(w);
   return (
     <main className="wrapped" aria-labelledby="wrapped-h">
       <p className="eyebrow">Your session, Wrapped</p>
@@ -18,8 +34,23 @@ export function Wrapped({ ex, ended, onRestart }: { ex: Exchange; ended: Ended; 
         {noTrades ? 'You watched the market. Fair.' : w.netPnl >= 0 ? 'You left with more than you brought.' : 'The market charged you for the lesson.'}
       </h1>
       <p className="muted">
-        {duration(ended.nowMs)} of market time · {fmtQty(w.ordersSent)} orders · {fmtQty(w.fills)} fills
+        {duration(ended.nowMs)} of market time · {fmtQty(w.ordersSent)} orders · {fmtQty(w.fills)} fills · lessons {lessonsDone}/{LESSONS.length}
       </p>
+      {previousNet !== null && (
+        <p className={`versus ${w.netPnl >= previousNet ? 'up' : 'down'}`} data-testid="versus">
+          {w.netPnl >= previousNet ? '▲' : '▼'} {money(Math.abs(w.netPnl - previousNet))} {w.netPnl >= previousNet ? 'better' : 'worse'} than your last session (
+          {money(previousNet, { sign: true })})
+        </p>
+      )}
+
+      <section className="next" aria-labelledby="next-h">
+        <h2 id="next-h">Try this next</h2>
+        <ol>
+          {steps.map((t) => (
+            <li key={t}>{t}</li>
+          ))}
+        </ol>
+      </section>
 
       <div className="cards">
         <article className="card">
@@ -64,7 +95,7 @@ export function Wrapped({ ex, ended, onRestart }: { ex: Exchange; ended: Ended; 
             <>
               <p className="big">{pct(w.winRate!)}</p>
               <p className="small">
-                of {w.roundTrips} round trips won. Best {money(w.best!, { sign: true })}, worst {money(w.worst!, { sign: true })}.
+                of {w.roundTrips} round trip{w.roundTrips === 1 ? '' : 's'} won. Best {money(w.best!, { sign: true })}, worst {money(w.worst!, { sign: true })}.
               </p>
             </>
           )}
@@ -108,10 +139,10 @@ export function Wrapped({ ex, ended, onRestart }: { ex: Exchange; ended: Ended; 
       </div>
 
       <div className="actions">
-        <button type="button" className="primary" onClick={() => onRestart(true)}>
+        <button type="button" className="primary" onClick={() => onRestart(true, w.netPnl)}>
           Replay this market (seed {ex.seed})
         </button>
-        <button type="button" onClick={() => onRestart(false)}>
+        <button type="button" onClick={() => onRestart(false, w.netPnl)}>
           New market
         </button>
       </div>
