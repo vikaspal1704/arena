@@ -16,6 +16,7 @@ function initialSeed(): number {
 export function App() {
   const ex = useExchange();
   const [started, setStarted] = useState(false);
+  const [lessonsOn, setLessonsOn] = useState(true);
   const [picked, setPicked] = useState<{ side: Side; price: number; n: number } | null>(null);
   /** Net P&L of the last finished session in this visit (kept in memory only). */
   const [previousNet, setPreviousNet] = useState<number | null>(null);
@@ -53,7 +54,7 @@ export function App() {
   return (
     <>
       <Header ex={ex} onEnd={ex.end} />
-      <LessonStrip ex={ex} />
+      <LessonStrip ex={ex} startHidden={!lessonsOn} key={lessonsOn ? 'on' : 'off'} />
       <main className="desk">
         <Ladder ex={ex} onPick={(side, price) => setPicked((p) => ({ side, price, n: (p?.n ?? 0) + 1 }))} />
         <div className="middle">
@@ -66,11 +67,18 @@ export function App() {
         </div>
       </main>
       <UnderTheHood ex={ex} />
-      <footer className="foot small muted">
-        Arena · simulated market, play money · <a href={REPO}>source</a> · by Vikas Pal
+      <footer className="foot">
+        Simulated market with play money. <a href={REPO}>Source on GitHub</a>. Built by Vikas Pal.
       </footer>
       <CoachNotes ex={ex} />
-      {!started && <Intro onStart={() => setStarted(true)} />}
+      {!started && (
+        <Intro
+          onStart={(withLessons) => {
+            setLessonsOn(withLessons);
+            setStarted(true);
+          }}
+        />
+      )}
     </>
   );
 }

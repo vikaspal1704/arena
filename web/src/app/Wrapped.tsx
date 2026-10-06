@@ -1,12 +1,13 @@
+import { Check, X } from '@phosphor-icons/react';
 import { duration, money, price as fmtPrice, qty as fmtQty } from '../core/format';
-import type { WrappedSummary } from '../core/session';
 import { LESSONS, nextSteps } from '../core/lessons';
-import { lessonFacts } from './Coach';
+import type { WrappedSummary } from '../core/session';
+import { lessonFacts, Tip } from './Coach';
 import type { Ended, Exchange } from './useExchange';
 
 const pct = (x: number) => `${Math.round(x * 100)}%`;
 
-/** End of session: the player's trading, Wrapped (after vikaspal1704/fo-wrapped). */
+/** End of session: the result first, then what to try next, then the detail. */
 export function Wrapped({
   ex,
   ended,
@@ -15,7 +16,7 @@ export function Wrapped({
 }: {
   ex: Exchange;
   ended: Ended;
-  /** Net P&L of the previous session in this visit, if any. */
+  /** Net result of the previous session in this visit, if any. */
   previousNet: number | null;
   onRestart: (sameMarket: boolean, net: number) => void;
 }) {
@@ -23,124 +24,123 @@ export function Wrapped({
   const mark = bids[0] && asks[0] ? Math.round((bids[0].price + asks[0].price) / 2) : (ex.prices.at(-1) ?? ended.fair);
   const w: WrappedSummary = ex.account.wrapped(mark, ended.nowMs);
   const c = w.charges;
-  const noTrades = w.fills === 0;
   const facts = lessonFacts(ex);
   const lessonsDone = LESSONS.filter((l) => l.done(facts)).length;
   const steps = nextSteps(w);
+  const delta = previousNet === null ? null : w.netPnl - previousNet;
+
   return (
     <main className="wrapped" aria-labelledby="wrapped-h">
-      <p className="eyebrow">Your session, Wrapped</p>
-      <h1 id="wrapped-h">
-        {noTrades ? 'You watched the market. Fair.' : w.netPnl >= 0 ? 'You left with more than you brought.' : 'The market charged you for the lesson.'}
-      </h1>
-      <p className="muted">
-        {duration(ended.nowMs)} of market time · {fmtQty(w.ordersSent)} orders · {fmtQty(w.fills)} fills · lessons {lessonsDone}/{LESSONS.length}
-      </p>
-      {previousNet !== null && (
-        <p className={`versus ${w.netPnl >= previousNet ? 'up' : 'down'}`} data-testid="versus">
-          {w.netPnl >= previousNet ? '▲' : '▼'} {money(Math.abs(w.netPnl - previousNet))} {w.netPnl >= previousNet ? 'better' : 'worse'} than your last session (
-          {money(previousNet, { sign: true })})
-        </p>
-      )}
-
-      <section className="next" aria-labelledby="next-h">
-        <h2 id="next-h">Try this next</h2>
-        <ol>
-          {steps.map((t) => (
-            <li key={t}>{t}</li>
-          ))}
-        </ol>
-      </section>
-
-      <div className="cards">
-        <article className="card">
-          <h2>The number</h2>
+      <div className="result">
+        <div>
+          <h1 id="wrapped-h">Session result after charges</h1>
           <p className={`big ${w.netPnl >= 0 ? 'up' : 'down'}`} data-testid="wrapped-net">
             {money(w.netPnl, { sign: true })}
           </p>
-          <p className="small">
-            {money(w.grossPnl, { sign: true })} from closed trades, minus {money(c.total)} in charges.
+          <p>
+            {money(w.grossPnl, { sign: true })} from closed trades, less {money(c.total)} in charges.
           </p>
           {w.openQty !== 0 && (
-            <p className="small muted">
-              Still open: {fmtQty(w.openQty)} units, worth {money(Math.round(w.openPnl), { sign: true })} at the last mid (not counted).
+            <p className="muted">
+              You ended with {fmtQty(Math.abs(w.openQty))} units {w.openQty > 0 ? 'long' : 'short'}, worth {money(Math.round(w.openPnl), { sign: true })} at the
+              last mid. That is not counted above.
             </p>
           )}
-        </article>
-
-        <article className="card">
-          <h2>Where the money went</h2>
-          <ul className="breakdown small">
-            <li>Brokerage {money(c.brokerage)}</li>
-            <li>STT {money(c.stt)}</li>
-            <li>Exchange {money(c.exchange)}</li>
-            <li>GST {money(c.gst)}</li>
-            <li>Stamp duty {money(c.stamp)}</li>
-            <li>SEBI {money(c.sebi)}</li>
-          </ul>
-          <p className="small">
-            {w.chargesPctOfGross === null
-              ? 'Real Indian index-futures charges (2026 rates), the same table F&O Wrapped uses.'
-              : w.chargesPctOfGross > 100
-                ? `Charges were ${(w.chargesPctOfGross / 100).toFixed(w.chargesPctOfGross >= 1000 ? 0 : 1)}× your gross profit. STT alone is 0.05% of every sale.`
-                : `Charges took ${Math.round(w.chargesPctOfGross)}% of your gross profit.`}
-          </p>
-        </article>
-
-        <article className="card">
-          <h2>Right but broke?</h2>
-          {w.roundTrips === 0 ? (
-            <p className="small">No round trips closed: a trade counts once your position goes back to flat.</p>
-          ) : (
-            <>
-              <p className="big">{pct(w.winRate!)}</p>
-              <p className="small">
-                of {w.roundTrips} round trip{w.roundTrips === 1 ? '' : 's'} won. Best {money(w.best!, { sign: true })}, worst {money(w.worst!, { sign: true })}.
-              </p>
-            </>
+          {delta !== null && (
+            <p className={delta >= 0 ? 'up' : 'down'} data-testid="versus">
+              {money(Math.abs(delta))} {delta >= 0 ? 'better' : 'worse'} than your last session ({money(previousNet!, { sign: true })}).
+            </p>
           )}
-        </article>
-
-        <article className="card">
-          <h2>Against fair value</h2>
-          <p className={`big ${w.edgeVsFair >= 0 ? 'up' : 'down'}`}>{money(w.edgeVsFair, { sign: true })}</p>
-          <p className="small">
-            The bots priced around a hidden fair value; at the end it was ₹{fmtPrice(ended.fair)}. Compared with it at the moment of each fill, this is what
-            your entries and exits gained or gave away: mostly the spread you crossed, and how well you timed it.
+          <p className="muted small">
+            {duration(ended.nowMs)} of market time, {fmtQty(w.ordersSent)} orders, {fmtQty(w.fills)} fills. Lessons done: {lessonsDone} of {LESSONS.length}.
           </p>
-        </article>
+        </div>
+        <section className="next" aria-labelledby="next-h">
+          <h2 id="next-h">Try this next</h2>
+          <ol>
+            {steps.map((t) => (
+              <li key={t}>{t}</li>
+            ))}
+          </ol>
+        </section>
+      </div>
 
-        <article className="card">
-          <h2>Maker or taker</h2>
-          {w.makerShare === null ? (
-            <p className="small">No fills yet.</p>
-          ) : (
-            <>
-              <p className="big">{pct(w.makerShare)}</p>
-              <p className="small">
-                of your volume rested in the book and was hit (you earned the spread); the rest crossed it.
-                {w.medianRestMs !== null && ` Your passive orders waited ${duration(w.medianRestMs)} (median) in the queue.`}
-              </p>
-            </>
+      <dl className="figures">
+        <div>
+          <dt>Round trips won</dt>
+          <dd>{w.roundTrips === 0 ? '0' : `${w.wins} of ${w.roundTrips}`}</dd>
+        </div>
+        <div>
+          <dt>Best trip</dt>
+          <dd className={w.best !== null && w.best >= 0 ? 'up' : 'down'}>{w.best === null ? 'None' : money(w.best, { sign: true })}</dd>
+        </div>
+        <div>
+          <dt>
+            Maker share
+            <Tip label="maker share">The share of your volume that rested in the book and was hit by someone else. Makers earn the spread; takers pay it.</Tip>
+          </dt>
+          <dd>{w.makerShare === null ? 'None' : pct(w.makerShare)}</dd>
+        </div>
+        <div>
+          <dt>
+            Against fair value
+            <Tip label="against fair value">
+              The bots priced around a hidden fair value (₹{fmtPrice(ended.fair)} at the end). This adds up how far each of your fills was from it at the time: mostly the spread you crossed, plus timing.
+            </Tip>
+          </dt>
+          <dd className={w.edgeVsFair >= 0 ? 'up' : 'down'}>{money(w.edgeVsFair, { sign: true })}</dd>
+        </div>
+        <div>
+          <dt>Median wait</dt>
+          <dd>{w.medianRestMs === null ? 'None' : duration(w.medianRestMs)}</dd>
+        </div>
+      </dl>
+
+      <div className="lower">
+        <section aria-labelledby="charges-h">
+          <h2 id="charges-h">Charges</h2>
+          <dl className="receipt">
+            {(
+              [
+                ['Brokerage', c.brokerage],
+                ['Securities transaction tax', c.stt],
+                ['Exchange fees', c.exchange],
+                ['GST', c.gst],
+                ['Stamp duty', c.stamp],
+                ['SEBI fees', c.sebi],
+              ] as const
+            ).map(([label, v]) => (
+              <div key={label}>
+                <dt>{label}</dt>
+                <dd>{money(v)}</dd>
+              </div>
+            ))}
+            <div className="sum">
+              <dt>Total</dt>
+              <dd>{money(c.total)}</dd>
+            </div>
+          </dl>
+          {w.chargesPctOfGross !== null && w.chargesPctOfGross > 100 && (
+            <p className="muted small">Charges were {Math.round(w.chargesPctOfGross / 100)} times your gross profit.</p>
           )}
-        </article>
-
-        <article className="card audit">
-          <h2>Audit trail</h2>
-          <p className="small">
+        </section>
+        <section className="audit" aria-labelledby="audit-h">
+          <h2 id="audit-h">Audit trail</h2>
+          <p>
             Your session is journal entries 1 to {fmtQty(ended.seq)}. Replayed from scratch, the exchange reached fingerprint{' '}
-            <span className="mono">{ended.fingerprint}</span>:
+            <span className="mono">{ended.fingerprint}</span>.
           </p>
           <p className={`verify ${ended.verified ? 'ok' : 'bad'}`} data-testid="wrapped-verified">
-            {ended.verified ? '✓ identical to the live session, event for event' : '✕ replay differs'}
+            {ended.verified ? <Check size={16} weight="bold" aria-hidden="true" /> : <X size={16} weight="bold" aria-hidden="true" />}
+            <span>{ended.verified ? 'Identical to the live session, event for event.' : 'The replay differs from the live session.'}</span>
           </p>
-          <p className="small muted">Seed {ex.seed}: the bots will make exactly the same moves again, until you trade differently.</p>
-        </article>
+          <p className="muted small">With seed {ex.seed}, the bots repeat exactly the same moves until you trade differently.</p>
+        </section>
       </div>
 
       <div className="actions">
         <button type="button" className="primary" onClick={() => onRestart(true, w.netPnl)}>
-          Replay this market (seed {ex.seed})
+          Replay this market
         </button>
         <button type="button" onClick={() => onRestart(false, w.netPnl)}>
           New market

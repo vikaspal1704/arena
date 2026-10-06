@@ -61,4 +61,7 @@ Every test below runs in CI (`.github/workflows/ci.yml`).
 | `a11y_intro_desk_and_wrapped` | axe-core, no violations on the intro, the desk and Wrapped |
 | `e2e_lessons_guide_and_explain_with_coach_notes` | Lesson 1 completes on a market buy, explains it, coach note appears, lesson 2 starts |
 | `e2e_glossary_tip_opens_and_closes` | "?" opens a note; Escape closes it |
+| `e2e_trade_freely_skips_the_lessons` | "Trade freely" starts with the lessons collapsed |
+| `e2e_no_dashes_or_symbol_glyphs_in_visible_text` | No em/en dashes or text glyphs standing in for icons, on the desk and in Wrapped ([DESIGN](DESIGN.md)) |
+| `a11y_dark_theme_desk_and_wrapped` | axe-core passes in the dark theme too |
 | `e2e_layout_stays_still_while_the_market_moves` | 6 s of live market at normal speed: no watched panel moves, cumulative layout shift < 0.05 |

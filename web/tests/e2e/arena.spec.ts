@@ -4,7 +4,7 @@ import { expect, test, type Page } from '@playwright/test';
 async function open(page: Page, seed = 42) {
   await page.goto(`./?seed=${seed}`);
   await page.getByRole('button', { name: 'Start the lessons' }).click();
-  await expect(page.getByTestId('last-price')).not.toHaveText('—', { timeout: 15_000 });
+  await expect(page.getByTestId('last-price')).toHaveText(/\d/, { timeout: 15_000 });
 }
 
 test('e2e_trade_then_wrapped_with_verified_audit', async ({ page }) => {
@@ -17,10 +17,10 @@ test('e2e_trade_then_wrapped_with_verified_audit', async ({ page }) => {
   await page.getByRole('button', { name: 'Sell 75 at market' }).click();
   await expect(page.getByTestId('position')).toHaveText('0');
   await page.getByRole('button', { name: 'End session' }).click();
-  await expect(page.getByText('Your session, Wrapped')).toBeVisible();
+  await expect(page.getByText('Session result after charges')).toBeVisible();
   await expect(page.getByTestId('wrapped-net')).toHaveText(/₹/);
-  await expect(page.getByTestId('wrapped-verified')).toContainText('identical to the live session');
-  await expect(page.getByText('of 1 round trip won')).toBeVisible();
+  await expect(page.getByTestId('wrapped-verified')).toContainText('Identical to the live session');
+  await expect(page.locator('.figures')).toContainText(/Round trips won\s*\d of 1/);
 });
 
 test('e2e_resting_order_shows_queue_and_cancels', async ({ page }) => {
@@ -36,15 +36,15 @@ test('e2e_resting_order_shows_queue_and_cancels', async ({ page }) => {
 test('e2e_time_travel_replays_and_verifies', async ({ page }) => {
   await open(page);
   await page.waitForTimeout(1500);
-  await page.getByRole('button', { name: 'Pause and time-travel' }).click();
+  await page.getByRole('button', { name: 'Pause and replay' }).click();
   await expect(page.getByTestId('replay-verify')).toContainText('matches the live fingerprint');
   const slider = page.getByRole('slider', { name: 'Journal position' });
   await slider.fill('20');
   await expect(page.getByTestId('replay-verify')).toContainText('Replayed 20 entries');
   await expect(page.getByTestId('replay-verify')).toContainText('matches the live fingerprint');
-  await expect(page.locator('#book-h')).toContainText('replay at #20');
+  await expect(page.getByTestId('book-status')).toHaveText('Replay at #20');
   await page.getByRole('button', { name: 'Back to live' }).click();
-  await expect(page.locator('#book-h')).toContainText('· live');
+  await expect(page.getByTestId('book-status')).toHaveText('Live');
 });
 
 test('e2e_chaos_drops_packets_and_the_book_heals', async ({ page }) => {
@@ -53,7 +53,7 @@ test('e2e_chaos_drops_packets_and_the_book_heals', async ({ page }) => {
   await expect.poll(async () => Number(await page.getByTestId('gaps').textContent()), { timeout: 15_000 }).toBeGreaterThan(2);
   await page.getByRole('slider', { name: 'Packet drop rate' }).fill('0');
   // With chaos off, the client resyncs and stays live.
-  await expect(page.getByTestId('feed-stats')).toContainText('LIVE', { timeout: 10_000 });
+  await expect(page.getByTestId('feed-stats')).toContainText('StatusLive', { timeout: 10_000 });
 });
 
 test('e2e_same_seed_same_market', async ({ browser }) => {
@@ -64,7 +64,7 @@ test('e2e_same_seed_same_market', async ({ browser }) => {
     await open(page, 7);
     if (target !== null) await expect.poll(async () => Number((await page.getByTestId('seq').textContent())!.slice(1)), { timeout: 20_000 }).toBeGreaterThan(target);
     else await page.waitForTimeout(1500);
-    await page.getByRole('button', { name: 'Pause and time-travel' }).click();
+    await page.getByRole('button', { name: 'Pause and replay' }).click();
     const seq = target ?? Number((await page.getByTestId('seq').textContent())!.slice(1));
     await page.getByRole('slider', { name: 'Journal position' }).fill(String(seq));
     await expect(page.getByTestId('replay-verify')).toContainText(`Replayed ${seq} entries`);
@@ -80,7 +80,7 @@ test('e2e_same_seed_same_market', async ({ browser }) => {
 test('e2e_benchmark_runs_in_the_browser', async ({ page }) => {
   await open(page);
   await page.getByRole('button', { name: 'Run 1M commands' }).click();
-  await expect(page.getByTestId('bench-result')).toContainText('commands/s in your browser', { timeout: 30_000 });
+  await expect(page.getByTestId('bench-result')).toContainText('commands per second in your browser', { timeout: 30_000 });
 });
 
 test('e2e_no_third_party_requests', async ({ page }) => {
@@ -98,27 +98,27 @@ test('a11y_intro_desk_and_wrapped', async ({ page }) => {
   await expect(page.getByRole('dialog')).toBeVisible();
   expect((await new AxeBuilder({ page }).include('.intro').analyze()).violations).toEqual([]);
   await page.getByRole('button', { name: 'Start the lessons' }).click();
-  await expect(page.getByTestId('last-price')).not.toHaveText('—', { timeout: 15_000 });
+  await expect(page.getByTestId('last-price')).toHaveText(/\d/, { timeout: 15_000 });
   await page.getByRole('button', { name: 'Pause', exact: true }).click();
   expect((await new AxeBuilder({ page }).analyze()).violations).toEqual([]);
   await page.getByRole('button', { name: 'Resume', exact: true }).click();
   await page.getByRole('button', { name: 'End session' }).click();
-  await expect(page.getByText('Your session, Wrapped')).toBeVisible();
+  await expect(page.getByText('Session result after charges')).toBeVisible();
   expect((await new AxeBuilder({ page }).analyze()).violations).toEqual([]);
 });
 
 test('e2e_lessons_guide_and_explain_with_coach_notes', async ({ page }) => {
   await open(page);
   const lessons = page.getByTestId('lessons');
-  await expect(lessons).toContainText('1. Take liquidity');
+  await expect(lessons).toContainText('1/7Take liquidity.');
   await page.getByRole('button', { name: 'Market', exact: true }).click();
   await page.getByRole('button', { name: 'Buy 75 at market' }).click();
-  await expect(lessons).toContainText('✓ Take liquidity');
-  await expect(lessons).toContainText('the price of not waiting');
+  await expect(lessons).toContainText('Take liquidity. Filled at once');
+  await expect(lessons).toContainText('the cost of trading immediately');
   await expect(page.locator('.note-card').first()).toContainText('Bought 75');
-  await page.getByRole('button', { name: 'Next lesson →' }).click();
-  await expect(lessons).toContainText('2. Make liquidity');
-  await expect(lessons).toContainText('Lessons 1/7');
+  await page.getByRole('button', { name: 'Next lesson' }).click();
+  await expect(lessons).toContainText('2/7Make liquidity.');
+  await expect(page.getByRole('list', { name: 'Lessons: 1 of 7 done' })).toBeVisible();
 });
 
 test('e2e_glossary_tip_opens_and_closes', async ({ page }) => {
@@ -159,4 +159,37 @@ test('e2e_layout_stays_still_while_the_market_moves', async ({ page }) => {
   );
   expect(result.moved).toEqual([]);
   expect(result.cls).toBeLessThan(0.05);
+});
+
+test('e2e_trade_freely_skips_the_lessons', async ({ page }) => {
+  await page.goto('./?seed=9');
+  await page.getByRole('button', { name: 'Trade freely' }).click();
+  await expect(page.getByRole('button', { name: 'Show lessons' })).toBeVisible();
+  await expect(page.getByTestId('lessons')).toHaveCount(0);
+});
+
+test('e2e_no_dashes_or_symbol_glyphs_in_visible_text', async ({ page }) => {
+  // Taste check: no em or en dashes, and icons come from the icon library, not text glyphs.
+  await open(page);
+  await page.getByRole('button', { name: 'Market', exact: true }).click();
+  await page.getByRole('button', { name: 'Buy 75 at market' }).click();
+  await expect(page.getByTestId('position')).toHaveText('+75');
+  const desk = await page.locator('body').innerText();
+  await page.getByRole('button', { name: 'End session' }).click();
+  await expect(page.getByText('Session result after charges')).toBeVisible();
+  const wrapped = await page.locator('body').innerText();
+  for (const text of [desk, wrapped]) expect(text).not.toMatch(/[\u2013\u2014◆✓✕▲▼●❚▶⏸]/);
+});
+
+test.describe('dark theme', () => {
+  test.use({ colorScheme: 'dark' });
+  test('a11y_dark_theme_desk_and_wrapped', async ({ page }) => {
+    await open(page);
+    await page.getByRole('button', { name: 'Pause', exact: true }).click();
+    expect((await new AxeBuilder({ page }).analyze()).violations).toEqual([]);
+    await page.getByRole('button', { name: 'Resume', exact: true }).click();
+    await page.getByRole('button', { name: 'End session' }).click();
+    await expect(page.getByText('Session result after charges')).toBeVisible();
+    expect((await new AxeBuilder({ page }).analyze()).violations).toEqual([]);
+  });
 });

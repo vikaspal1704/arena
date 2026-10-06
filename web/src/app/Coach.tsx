@@ -1,4 +1,5 @@
 import { useEffect, useId, useRef, useState, type ReactNode } from 'react';
+import { ArrowRight, Check, Question, X } from '@phosphor-icons/react';
 import { currentLesson, LESSONS, type LessonFacts } from '../core/lessons';
 import type { Exchange } from './useExchange';
 
@@ -13,13 +14,13 @@ export function lessonFacts(ex: Exchange): LessonFacts {
 }
 
 /**
- * Guided lessons along the top of the desk. Fixed height on wide screens,
- * so finishing a lesson never moves the trading panels.
+ * Guided lessons in a flat bar under the top bar. Finishing a lesson changes
+ * text inside the bar, never its position, so the desk below does not move.
  */
-export function LessonStrip({ ex }: { ex: Exchange }) {
+export function LessonStrip({ ex, startHidden = false }: { ex: Exchange; startHidden?: boolean }) {
   const facts = lessonFacts(ex);
   const [acknowledged, setAcknowledged] = useState<Set<string>>(() => new Set());
-  const [hidden, setHidden] = useState(false);
+  const [hidden, setHidden] = useState(startHidden);
   const current = currentLesson(facts);
   // The earliest finished lesson the player hasn't read yet.
   const fresh = LESSONS.find((l) => l.done(facts) && !acknowledged.has(l.id));
@@ -29,9 +30,9 @@ export function LessonStrip({ ex }: { ex: Exchange }) {
     return (
       <div className="lessons collapsed">
         <span className="muted small">
-          Lessons {doneCount}/{LESSONS.length}
+          Lessons {doneCount} of {LESSONS.length} done
         </span>
-        <button type="button" className="link" onClick={() => setHidden(false)}>
+        <button type="button" className="link small" onClick={() => setHidden(false)}>
           Show lessons
         </button>
       </div>
@@ -40,49 +41,43 @@ export function LessonStrip({ ex }: { ex: Exchange }) {
 
   const lesson = LESSONS[current];
   return (
-    <section className="lessons" aria-labelledby="lessons-h" data-testid="lessons">
-      <div className="lessons-head">
-        <h2 id="lessons-h">
-          Lessons <span className="muted">{doneCount}/{LESSONS.length}</span>
-        </h2>
-        <ol className="dots" aria-label="Lesson progress">
+    <section className="lessons" aria-label="Lessons" data-testid="lessons">
+      {fresh ? (
+        <div className="learned" role="status">
+          <Check size={18} weight="bold" aria-hidden="true" />
+          <p>
+            <strong>{fresh.title}.</strong> {fresh.learned(facts)}
+          </p>
+        </div>
+      ) : lesson ? (
+        <p>
+          <span className="count">
+            {current + 1}/{LESSONS.length}
+          </span>
+          <strong>{lesson.title}.</strong> {lesson.task}
+          <span className="where">{lesson.where}</span>
+        </p>
+      ) : (
+        <p>
+          <strong>All seven lessons done.</strong> Next goal: finish a session with a positive result after charges.
+        </p>
+      )}
+      <div className="lessons-side">
+        {fresh && (
+          <button type="button" className="primary" onClick={() => setAcknowledged((a) => new Set(a).add(fresh.id))}>
+            {current < LESSONS.length ? 'Next lesson' : 'Done'}
+            <ArrowRight size={14} weight="bold" aria-hidden="true" />
+          </button>
+        )}
+        <ol className="progress" aria-label={`Lessons: ${doneCount} of ${LESSONS.length} done`}>
           {LESSONS.map((l, i) => (
-            <li key={l.id} className={l.done(facts) ? 'done' : i === current ? 'now' : ''} title={l.title}>
-              <span className="sr-only">
-                {l.title}: {l.done(facts) ? 'done' : i === current ? 'current' : 'to do'}
-              </span>
-            </li>
+            <li key={l.id} className={l.done(facts) ? 'done' : i === current ? 'now' : ''} title={l.title} />
           ))}
         </ol>
         <button type="button" className="link small" onClick={() => setHidden(true)}>
           Hide
         </button>
       </div>
-      {fresh ? (
-        <div className="lesson-body learned" role="status">
-          <p>
-            <strong>✓ {fresh.title}.</strong> {fresh.learned(facts)}
-          </p>
-          <button type="button" className="primary" onClick={() => setAcknowledged((a) => new Set(a).add(fresh.id))}>
-            {current < LESSONS.length ? 'Next lesson →' : 'Done'}
-          </button>
-        </div>
-      ) : lesson ? (
-        <div className="lesson-body">
-          <p>
-            <strong>
-              {current + 1}. {lesson.title}:
-            </strong>{' '}
-            {lesson.task} <span className="where">{lesson.where}</span>
-          </p>
-        </div>
-      ) : (
-        <div className="lesson-body">
-          <p>
-            <strong>All lessons done.</strong> Now try to finish a session with positive P&amp;L after charges. It's harder than it looks.
-          </p>
-        </div>
-      )}
     </section>
   );
 }
@@ -94,8 +89,8 @@ export function CoachNotes({ ex }: { ex: Exchange }) {
       {ex.notes.map((n) => (
         <div key={n.id} className={`note-card ${n.tone}`}>
           <span>{n.text}</span>
-          <button type="button" className="link" aria-label="Dismiss" onClick={() => ex.dismissNote(n.id)}>
-            ×
+          <button type="button" aria-label="Dismiss" onClick={() => ex.dismissNote(n.id)}>
+            <X size={14} aria-hidden="true" />
           </button>
         </div>
       ))}
@@ -123,7 +118,7 @@ export function Tip({ label, children }: { label: string; children: ReactNode })
   return (
     <span className="tip" ref={ref}>
       <button type="button" className="tip-btn" aria-expanded={open} aria-controls={id} aria-label={`What is ${label}?`} onClick={() => setOpen((o) => !o)}>
-        ?
+        <Question size={15} aria-hidden="true" />
       </button>
       {open && (
         <span id={id} role="note" className="tip-bubble">

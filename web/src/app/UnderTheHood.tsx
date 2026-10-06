@@ -1,18 +1,22 @@
 import { useEffect, useRef, useState } from 'react';
+import { Check, DownloadSimple, Pause, Play, X } from '@phosphor-icons/react';
 import { clock, price as fmtPrice, qty as fmtQty } from '../core/format';
 import { ownerName, type JournalRow } from '../core/types';
+import { REPO } from './Intro';
 import type { Exchange } from './useExchange';
 
 /** The parts of the system a reviewer wants to poke at. */
 export function UnderTheHood({ ex }: { ex: Exchange }) {
   return (
     <section className="hood" aria-labelledby="hood-h">
-      <h2 id="hood-h" className="section-title">
-        Under the hood
-      </h2>
+      <h2 id="hood-h">Under the hood</h2>
+      <p className="hood-lede muted">
+        The matching engine is written in Rust and runs here as WebAssembly. In CI it matches a separate Python engine on 1.5 million random orders.{' '}
+        <a href={`${REPO}/blob/main/docs/ARCHITECTURE.md`}>How it works</a>
+      </p>
       <div className="hood-grid">
-        <FeedPanel ex={ex} />
         <JournalPanel ex={ex} />
+        <FeedPanel ex={ex} />
         <BenchPanel />
       </div>
     </section>
@@ -24,15 +28,14 @@ function FeedPanel({ ex }: { ex: Exchange }) {
   const s = ex.book.stats;
   const recovering = ex.book.status === 'recovering';
   return (
-    <section className="panel" aria-labelledby="feed-h">
-      <h3 id="feed-h">Market-data feed</h3>
-      <p className="small muted">
-        The book you see is rebuilt from a sequenced stream of deltas. A gap in the sequence means a lost packet: the client stops trusting its book, asks
-        for a snapshot and carries on.
-      </p>
+    <section className="pane" aria-labelledby="feed-h">
+      <div className="pane-head">
+        <h3 id="feed-h">Market-data feed</h3>
+      </div>
+      <p className="small muted">The book on screen is rebuilt from numbered updates. A missing number means a lost packet, so the screen asks for a fresh snapshot.</p>
       <label className="field">
         <span>
-          Chaos: drop <strong>{Math.round(drop * 100)}%</strong> of packets
+          Drop <strong>{Math.round(drop * 100)}%</strong> of packets
         </span>
         <input
           type="range"
@@ -51,11 +54,11 @@ function FeedPanel({ ex }: { ex: Exchange }) {
       <dl className="stats compact" data-testid="feed-stats">
         <div>
           <dt>Status</dt>
-          <dd className={recovering ? 'down' : 'up'}>{recovering ? 'RECOVERING' : 'LIVE'}</dd>
+          <dd className={recovering ? 'down' : 'up'}>{recovering ? 'Recovering' : 'Live'}</dd>
         </div>
         <div>
-          <dt>Feed seq</dt>
-          <dd>{ex.book.lastSeq}</dd>
+          <dt>Last update</dt>
+          <dd>#{ex.book.lastSeq}</dd>
         </div>
         <div>
           <dt>Dropped</dt>
@@ -66,7 +69,7 @@ function FeedPanel({ ex }: { ex: Exchange }) {
           <dd data-testid="gaps">{s.gaps}</dd>
         </div>
         <div>
-          <dt>Resyncs</dt>
+          <dt>Snapshots</dt>
           <dd>{s.resyncs}</dd>
         </div>
         <div>
@@ -74,7 +77,7 @@ function FeedPanel({ ex }: { ex: Exchange }) {
           <dd>{s.ignoredStale}</dd>
         </div>
       </dl>
-      <p className="small muted">Your own fills use a separate, reliable channel, so chaos never loses them (it can lose trades from the public tape).</p>
+      <p className="small muted">Your own fills use a separate, reliable channel, so lost packets never lose them.</p>
     </section>
   );
 }
@@ -111,58 +114,72 @@ function JournalPanel({ ex }: { ex: Exchange }) {
   };
 
   return (
-    <section className="panel" aria-labelledby="journal-h">
-      <h3 id="journal-h">Journal &amp; time travel</h3>
+    <section className="pane" aria-labelledby="journal-h">
+      <div className="pane-head">
+        <h3 id="journal-h">Journal and replay</h3>
+      </div>
       <p className="small muted">
-        Every order, bot or human, is sequenced and written to a journal before it reaches the engine. The exchange is a pure function of that journal, so
-        any point in the session can be rebuilt from scratch and checked against the fingerprint recorded live.
+        Every order, from a bot or from you, is numbered and written to a journal before it reaches the engine. Rebuild the exchange at any point and check
+        it against the fingerprint recorded live.
       </p>
       <dl className="stats compact">
         <div>
-          <dt>Journal</dt>
+          <dt>Entries</dt>
           <dd data-testid="seq">#{seq}</dd>
         </div>
         <div className="wide">
           <dt>Fingerprint</dt>
-          <dd className="mono" data-testid="fingerprint">
-            {ex.status?.fingerprint ?? '—'}
-          </dd>
+          <dd data-testid="fingerprint">{ex.status?.fingerprint ?? ''}</dd>
         </div>
       </dl>
       {!paused ? (
-        <button type="button" onClick={() => { ex.pause(true); go(seq); }}>
-          <span aria-hidden="true">⏸</span> Pause and time-travel
+        <button
+          type="button"
+          onClick={() => {
+            ex.pause(true);
+            go(seq);
+          }}
+        >
+          <Pause size={14} weight="fill" aria-hidden="true" />
+          Pause and replay
         </button>
       ) : (
         <>
           <label className="field">
             <span>
-              Rebuild the book after entry <strong>#{upto}</strong> of {seq}
+              Rebuild after entry <strong className="mono">#{upto}</strong> of {seq}
             </span>
             <input type="range" min={0} max={seq} value={upto} onChange={(e) => go(Number(e.target.value))} aria-label="Journal position" />
           </label>
           {view && (
             <div className={`verify ${view.matches ? 'ok' : 'bad'}`} role="status" data-testid="replay-verify">
-              {view.matches ? '✓' : '✕'} Replayed {view.upto} entries from scratch: <span className="mono">{view.fingerprint}</span>{' '}
-              {view.matches ? 'matches the live fingerprint' : 'does NOT match'}
+              {view.matches ? <Check size={16} weight="bold" aria-hidden="true" /> : <X size={16} weight="bold" aria-hidden="true" />}
+              <span>
+                Replayed {view.upto} entries from scratch: <span className="mono">{view.fingerprint}</span>{' '}
+                {view.matches ? 'matches the live fingerprint' : 'does not match'}
+              </span>
             </div>
           )}
           {view && view.rows.length > 0 && (
             <ol className="list mono small journal">
               {view.rows.map((r) => (
                 <li key={r.seq} className={r.seq === view.upto ? 'current' : ''}>
-                  <span className="muted">#{r.seq}</span> <span className="muted">{clock(r.ts)}</span> {ownerName(r.owner)}: {rowText(r)}
+                  <span className="muted">
+                    #{r.seq} {clock(r.ts)}
+                  </span>{' '}
+                  {ownerName(r.owner)}: {rowText(r)}
                 </li>
               ))}
             </ol>
           )}
           <button type="button" onClick={() => ex.pause(false)}>
-            <span aria-hidden="true">▶</span> Back to live
+            <Play size={14} weight="fill" aria-hidden="true" />
+            Back to live
           </button>
         </>
       )}
-      <button type="button" className="link" onClick={download}>
-        Download the journal (JSON)
+      <button type="button" className="link small" onClick={download}>
+        <DownloadSimple size={14} aria-hidden="true" /> Download the journal (JSON)
       </button>
     </section>
   );
@@ -182,19 +199,20 @@ function BenchPanel() {
     w.postMessage({ n: 1_000_000 });
   };
   return (
-    <section className="panel" aria-labelledby="bench-h">
-      <h3 id="bench-h">Benchmark it in your browser</h3>
+    <section className="pane" aria-labelledby="bench-h">
+      <div className="pane-head">
+        <h3 id="bench-h">Benchmark</h3>
+      </div>
       <p className="small muted">
-        Pushes 1,000,000 commands (60% limit orders, 25% cancels, 15% market orders) through a fresh exchange: sequencing, journalling, matching and
-        fingerprinting, the full path. Native Rust on a 2.1 GHz Xeon core: about 2 million per second.
+        Send 1,000,000 orders and cancels through a fresh exchange in this browser. Native Rust on one 2.1 GHz server core does about 2 million a second.
       </p>
       <button type="button" onClick={run} disabled={running}>
-        {running ? 'Running…' : 'Run 1M commands'}
+        {running ? 'Running' : 'Run 1M commands'}
       </button>
       {result && (
         <p className="bench-result" role="status" data-testid="bench-result">
-          <strong>{((result.n / result.ms) * 1000).toLocaleString('en-IN', { maximumFractionDigits: 0 })}</strong> commands/s in your browser ·{' '}
-          {result.ms.toFixed(0)} ms · {result.trades.toLocaleString('en-IN')} trades
+          <strong>{((result.n / result.ms) * 1000).toLocaleString('en-IN', { maximumFractionDigits: 0 })}</strong> commands per second in your browser (
+          {result.ms.toFixed(0)} ms, {result.trades.toLocaleString('en-IN')} trades)
         </p>
       )}
     </section>

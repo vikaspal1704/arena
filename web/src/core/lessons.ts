@@ -35,73 +35,73 @@ export const LESSONS: Lesson[] = [
     id: 'take',
     title: 'Take liquidity',
     task: 'Buy or sell 1 lot at market.',
-    where: 'Order ticket → Market',
+    where: 'Order ticket › Market',
     done: (f) => f.account.fills.some((x) => x.liquidity === 'TAKER'),
     learned: (f) => {
       const fill = firstFill(f, 'TAKER')!;
       const pnl = spreadPnl(fill);
       return pnl === null
-        ? 'You filled instantly against orders already waiting in the book. That speed has a price: the spread.'
-        : `You filled instantly, but ${money(-pnl)} worse than the mid price a moment before. That's the spread: the price of not waiting.`;
+        ? 'Your order filled at once against orders already in the book. Trading immediately means paying the spread.'
+        : `Filled at once, ${money(-pnl)} worse than the mid price just before. That difference is the spread, the cost of trading immediately.`;
     },
   },
   {
     id: 'make',
     title: 'Make liquidity',
     task: 'Rest a limit order at the best bid or ask and get it filled.',
-    where: 'Order ticket → Limit → Bid / Ask',
+    where: 'Order ticket › Limit › Bid or Ask',
     done: (f) => f.account.fills.some((x) => x.liquidity === 'MAKER'),
     learned: (f) => {
       const fill = firstFill(f, 'MAKER')!;
       const pnl = spreadPnl(fill);
       const earned = pnl !== null && pnl > 0 ? `, ${money(pnl)} better than the mid` : '';
-      return `Someone else crossed the spread to trade with you${earned}. Makers earn the spread; the cost is waiting in the queue, and the risk the price runs away before you fill.`;
+      return `Another trader crossed the spread to fill your order${earned}. You earned the spread instead of paying it, at the cost of waiting and the risk of not filling.`;
     },
   },
   {
     id: 'cancel',
     title: 'Change your mind',
     task: 'Place a limit order away from the market, then cancel it.',
-    where: 'Your orders → Cancel',
+    where: 'Your orders › Cancel',
     done: (f) => f.account.cancels > 0,
     learned: () =>
-      'Cancelling is free and instant here, and most orders on real exchanges are cancelled, not filled. Your place in the queue is lost, though: rejoining puts you at the back.',
+      'Cancelling is free here, and on real exchanges most orders end cancelled rather than filled. Your place in the queue is gone: a new order joins at the back.',
   },
   {
     id: 'trip',
     title: 'Close a round trip',
     task: 'Open a position, then trade back to flat.',
-    where: 'Position → Net qty back to 0',
+    where: 'Position › Net quantity back to 0',
     done: (f) => f.account.roundTrips.length > 0,
     learned: (f) => {
       const trip = f.account.roundTrips[0]!;
       const charges = f.account.charges().total;
-      return `Your first trip made ${money(trip.pnl, { sign: true })} before costs; charges so far are ${money(charges)}. STT alone is 0.05% of every sale, so a small edge disappears fast.`;
+      return `First round trip: ${money(trip.pnl, { sign: true })} before costs, with ${money(charges)} in charges so far. STT alone is 0.05% of every sale.`;
     },
   },
   {
     id: 'chaos',
     title: 'Break the feed',
     task: 'Set chaos to 20% or more and watch gaps get detected.',
-    where: 'Under the hood → Market-data feed',
+    where: 'Under the hood › Market-data feed',
     done: (f) => f.gaps > 0 && f.feedLive,
     learned: (f) =>
-      `${f.gaps} lost packet${f.gaps === 1 ? '' : 's'} detected by sequence number, each healed with a snapshot. Your own fills never went missing: they use a separate, reliable channel.`,
+      `${f.gaps} lost packet${f.gaps === 1 ? '' : 's'} detected by sequence number and repaired with snapshots. Your own fills use a separate channel and were never lost.`,
   },
   {
     id: 'audit',
     title: 'Audit the exchange',
-    task: 'Pause, time-travel to any point and check the fingerprint.',
-    where: 'Under the hood → Journal & time travel',
+    task: 'Pause, replay to any point and check the fingerprint.',
+    where: 'Under the hood › Journal and replay',
     done: (f) => f.replayVerified,
     learned: () =>
-      'The exchange was rebuilt from its journal alone and reached the exact fingerprint recorded live. Same inputs, same outputs, every time: that is what lets exchanges prove what happened.',
+      'The exchange was rebuilt from its journal and matched the fingerprint recorded live. Same inputs give the same result, which is how an exchange can prove what happened.',
   },
   {
     id: 'wrapped',
     title: 'Read your session',
     task: 'End the session and see your Wrapped.',
-    where: 'Top bar → End session',
+    where: 'Top bar › End session',
     done: (f) => f.ended,
     learned: () => 'Every number in Wrapped comes from your own fills and the journal.',
   },

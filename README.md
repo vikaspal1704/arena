@@ -55,7 +55,7 @@ flowchart LR
 - **Session Wrapped** (`web/src/core/session.ts`): FIFO round trips, charges from F&O Wrapped's dated rate table, edge against fair value, personal "try this next" advice, and a comparison with your previous session.
 - **A screen you can read while it moves**: the ladder has fixed slots so rows never jump, changed quantities flash briefly instead of moving, and boxes have fixed sizes. Cumulative layout shift during live trading fell from 0.25 to 0.009, and a browser test keeps it under 0.05.
 
-Design decisions and trade-offs: [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md).
+Design decisions and trade-offs: [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md). Visual design rules: [`docs/DESIGN.md`](docs/DESIGN.md).
 
 ---
 
