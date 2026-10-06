@@ -53,7 +53,7 @@ After command *n*: `chain[n] = FNV-1a(chain[n−1], seq, ts, command, every even
 
 ### 3.6 No `wasm-bindgen`
 
-The module exports plain functions taking and returning numbers. Results (events, depth, journal rows) go into a `Vec<f64>` whose pointer TypeScript reads as a `Float64Array`. Every integer involved stays below 2^53, so `f64` carries it exactly, and JavaScript gets ordinary numbers rather than BigInts. Result: a 76 KB module with zero imports, no generated glue and no build tool beyond `cargo`.
+The module exports plain functions taking and returning numbers. Results (events, depth, journal rows) go into a `Vec<f64>` whose pointer TypeScript reads as a `Float64Array`. Every integer involved stays below 2^53, so `f64` carries it exactly, and JavaScript gets ordinary numbers rather than BigInts. Result: a 79 KB module with zero imports, no generated glue and no build tool beyond `cargo`.
 
 ### 3.7 The exchange runs in a Web Worker
 

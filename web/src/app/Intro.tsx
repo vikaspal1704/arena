@@ -14,7 +14,7 @@ export function Intro({ onStart }: { onStart: () => void }) {
         </p>
         <ul className="pitch">
           <li>
-            <strong>Matching engine in Rust</strong>, compiled to a 76 KB WebAssembly module with no JavaScript glue. Price-time priority, about 2 million
+            <strong>Matching engine in Rust</strong>, compiled to a 79 KB WebAssembly module with no JavaScript glue. Price-time priority, about 2 million
             orders a second.
           </li>
           <li>

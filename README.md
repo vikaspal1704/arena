@@ -7,7 +7,7 @@ Trade index futures against a market of bots. Watch your order wait in the queue
 | | |
 |---|---|
 | **Live** | https://vikaspal1704.github.io/arena/ |
-| **Engine** | Rust, no dependencies, compiled to a 76 KB WebAssembly module with no JavaScript glue |
+| **Engine** | Rust, no dependencies, compiled to a 79 KB WebAssembly module with no JavaScript glue |
 | **Speed** | ~2 million orders/s, p50 ≈ 350 ns per order (native, one core); about the same in the browser ([benchmarks](docs/BENCHMARKS.md)) |
 | **Correctness** | Differential-tested against an independent Python engine on 1.5 million random commands in CI |
 | **Stack** | Rust · WebAssembly · TypeScript · React · Web Workers · Vite · Vitest · Playwright |
