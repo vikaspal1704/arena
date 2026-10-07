@@ -62,6 +62,25 @@ jobs:
       - name: Runtime dependencies have no known vulnerabilities
         run: npm audit --omit=dev --audit-level=low
 
+  bot:
+    name: Options bot (strategy, risk, brokers, replays)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: bot
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: bot/package-lock.json
+      - run: npm ci
+      - run: npm test
+      - run: npm run demo
+      - name: Runtime dependencies have no known vulnerabilities
+        run: npm audit --omit=dev --audit-level=low
+
   web:
     name: Web app (lint, types, unit, e2e, build)
     runs-on: ubuntu-latest

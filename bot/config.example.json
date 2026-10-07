@@ -1,0 +1,18 @@
+{
+  "capital": 10000,
+  "underlyings": ["NIFTY", "SENSEX"],
+  "risk": {
+    "riskPerTrade": 800,
+    "dailyLossCap": 1200,
+    "maxTradesPerDay": 2,
+    "maxConsecutiveLosses": 2,
+    "cooldownMinutes": 15,
+    "capitalFloor": 7000,
+    "maxVix": 22,
+    "eventDays": []
+  },
+  "live": {
+    "enabled": false,
+    "acknowledge": ""
+  }
+}

@@ -7,7 +7,7 @@
 //   node src/server.mjs --mock   # synthetic ticks, no Kite needed
 
 import { randomBytes, timingSafeEqual } from 'node:crypto';
-import { existsSync, readFileSync, statSync, writeFileSync } from 'node:fs';
+import { existsSync, statSync } from 'node:fs';
 import { readFile } from 'node:fs/promises';
 import { createServer } from 'node:http';
 import { extname, join, resolve, sep } from 'node:path';
@@ -15,10 +15,13 @@ import { fileURLToPath } from 'node:url';
 import { WebSocketServer } from 'ws';
 import { KiteFeed, MockFeed } from './feeds.mjs';
 import { frontMonthFuture, istDate, KiteClient, loginUrl } from './kite.mjs';
+import { ENV_FILE, loadDotEnv, readSession, SESSION_FILE, writeSession } from './session.mjs';
+
+export { loadDotEnv };
 
 const here = fileURLToPath(new URL('.', import.meta.url));
 const DEFAULT_DIST = resolve(here, '../../web/dist');
-const DEFAULT_SESSION = resolve(here, '../.kite-session.json');
+const DEFAULT_SESSION = SESSION_FILE;
 
 const TYPES = {
   '.html': 'text/html; charset=utf-8',
@@ -31,29 +34,6 @@ const TYPES = {
   '.png': 'image/png',
   '.json': 'application/json',
 };
-
-/** Reads KEY=VALUE lines from a .env file without adding a dependency. */
-export function loadDotEnv(file, env = process.env) {
-  if (!existsSync(file)) return;
-  for (const line of readFileSync(file, 'utf8').split(/\r?\n/)) {
-    const m = /^\s*([A-Z_][A-Z0-9_]*)\s*=\s*(.*?)\s*$/.exec(line);
-    if (m && env[m[1]] === undefined) env[m[1]] = m[2].replace(/^(['"])(.*)\1$/, '$2');
-  }
-}
-
-function readSession(file, apiKey) {
-  try {
-    const s = JSON.parse(readFileSync(file, 'utf8'));
-    // Kite sessions end early each morning; a token from another day is useless.
-    return s.apiKey === apiKey && s.date === istDate() && s.accessToken ? s.accessToken : null;
-  } catch {
-    return null;
-  }
-}
-
-function writeSession(file, apiKey, accessToken) {
-  writeFileSync(file, JSON.stringify({ apiKey, accessToken, date: istDate() }), { mode: 0o600 });
-}
 
 const same = (a, b) => a.length === b.length && timingSafeEqual(Buffer.from(a), Buffer.from(b));
 
@@ -245,7 +225,7 @@ export async function createBridge({
 
 // CLI
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
-  loadDotEnv(resolve(here, '../.env'));
+  loadDotEnv(ENV_FILE);
   const mock = process.argv.includes('--mock');
   const portArg = process.argv.find((a) => a.startsWith('--port='));
   const bridge = await createBridge({ mode: mock ? 'mock' : 'kite', port: portArg ? Number(portArg.slice(7)) : Number(process.env.ARENA_PORT || 8765) });

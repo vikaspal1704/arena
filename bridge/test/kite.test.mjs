@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import { test } from 'node:test';
 import { KiteTicker } from 'kiteconnect';
-import { checksum, frontMonthFuture, KiteClient, KiteError, loginUrl, parseInstrumentsCsv, parseTicks } from '../src/kite.mjs';
+import { checksum, frontMonthFuture, KiteClient, KiteError, loginUrl, paiseToRupees, parseInstrumentsCsv, parseTicks } from '../src/kite.mjs';
 
 test('checksum is sha256 of key + request token + secret', () => {
   const expected = createHash('sha256').update('keyREQsecret').digest('hex');
@@ -133,4 +133,70 @@ test('client sends the documented headers and form, and maps Kite errors', async
   assert.equal(form.has('api_secret'), false, 'the secret itself is never sent');
   await assert.rejects(c.profile(), (e) => e instanceof KiteError && e.type === 'TokenException' && e.status === 403);
   assert.equal(calls[1].init.headers.Authorization, 'token KEY:AT');
+});
+
+test('index_packets_match_the_official_parser', () => {
+  // NIFTY 50 is token 256265; its low byte (9) is the indices segment.
+  const p = new ArrayBuffer(32);
+  const v = new DataView(p);
+  v.setUint32(0, 256265);
+  v.setUint32(4, 2_461_245); // ₹24,612.45
+  v.setUint32(8, 2_470_000);
+  v.setUint32(12, 2_440_000);
+  v.setUint32(16, 2_450_000);
+  v.setUint32(20, 2_445_500); // previous close
+  v.setUint32(24, 0);
+  v.setUint32(28, 1_791_350_000);
+  const buf = frame([p]);
+  const official = new KiteTicker({ api_key: 'k', access_token: 't' }).parseBinary(buf)[0];
+  const [ours] = parseTicks(buf);
+  assert.equal(ours.index, true);
+  assert.equal(ours.token, official.instrument_token);
+  assert.equal(ours.ltp, Math.round(official.last_price * 100));
+  assert.equal(ours.close, Math.round(official.ohlc.close * 100));
+  assert.equal(ours.ts, official.exchange_timestamp.getTime());
+});
+
+test('paise_to_rupees_is_exact_and_rejects_bad_prices', () => {
+  assert.equal(paiseToRupees(12_305), '123.05');
+  assert.equal(paiseToRupees(5), '0.05');
+  assert.equal(paiseToRupees(10_000), '100.00');
+  assert.throws(() => paiseToRupees(-5));
+  assert.throws(() => paiseToRupees(1.5));
+});
+
+test('order calls send the documented form and read the latest order state', async () => {
+  const calls = [];
+  const json = (data) => new Response(JSON.stringify({ status: 'success', data }), { headers: { 'content-type': 'application/json' } });
+  const fakeFetch = async (url, init) => {
+    calls.push({ url: String(url), method: init.method, form: Object.fromEntries(new URLSearchParams(init.body ?? '')) });
+    if (String(url).includes('/orders/regular') && init.method === 'POST') return json({ order_id: '2610070001' });
+    if (/\/orders\/2610070001$/.test(String(url))) {
+      return json([
+        { status: 'OPEN', filled_quantity: 0, average_price: 0 },
+        { status: 'COMPLETE', filled_quantity: 65, average_price: 101.35 },
+      ]);
+    }
+    return json({});
+  };
+  const c = new KiteClient({ apiKey: 'KEY', accessToken: 'AT', fetchImpl: fakeFetch });
+  const id = await c.placeOrder({ exchange: 'NFO', symbol: 'NIFTY26OCT24600CE', side: 'BUY', qty: 65, orderType: 'LIMIT', price: 10_140, product: 'MIS', tag: 'arenabot' });
+  assert.equal(id, '2610070001');
+  assert.deepEqual(calls[0].form, {
+    exchange: 'NFO',
+    tradingsymbol: 'NIFTY26OCT24600CE',
+    transaction_type: 'BUY',
+    quantity: '65',
+    product: 'MIS',
+    order_type: 'LIMIT',
+    validity: 'DAY',
+    price: '101.40',
+    tag: 'arenabot',
+  });
+  await c.modifyOrder(id, { qty: 65, orderType: 'SL', price: 7_000, trigger: 7_100 });
+  assert.equal(calls[1].method, 'PUT');
+  assert.equal(calls[1].form.trigger_price, '71.00');
+  await c.cancelOrder(id);
+  assert.equal(calls[2].method, 'DELETE');
+  assert.deepEqual(await c.orderStatus(id), { status: 'COMPLETE', filledQty: 65, avgPrice: 10_135, message: null });
 });

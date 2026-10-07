@@ -31,6 +31,8 @@ Built by **Vikas Pal** (Software Engineer, Fintech). Arena brings together three
 
 **Real-market mode (local).** With your own Kite Connect app, a small bridge on your machine streams live NIFTY futures prices and the real 5-level book into Arena; the bots quote around the real price. Your secret stays on your machine and your orders stay simulated. Setup: [`docs/REAL_MARKET.md`](docs/REAL_MARKET.md).
 
+**Options bot (local).** On the same Kite session, `bot/` trades NIFTY and SENSEX options with written rules: opening-range breakouts in the direction of the trend, an exchange stop from the first second, breakeven and trailing stops, and account limits (₹800 risk a trade, ₹1,200 a day, two losses and it stops). It paper trades on live prices by default. Real orders stay locked until there is a profitable paper record, a config acknowledgement and a typed confirmation. Every decision is logged with the rule that made it, and recorded days replay exactly. Rules, limits and the honest maths of a ₹10,000 account: [`docs/TRADING_BOT.md`](docs/TRADING_BOT.md).
+
 ---
 
 ## How it works
@@ -101,6 +103,7 @@ crates/wasm/       # WebAssembly exports (no wasm-bindgen)
 crates/bench/      # throughput and latency percentiles
 crates/difftest/   # emits a random command stream and this engine's results
 bridge/            # local-only Kite Connect bridge for real-market mode (Node, one runtime dependency)
+bot/               # NIFTY and SENSEX options bot: strategy, risk, paper and live brokers, replay
 difftest/          # compares them with the Python reference engine
 web/src/core/      # pure TypeScript: wasm wrapper, feed protocol, account, charges
 web/src/worker/    # the exchange process and the benchmark worker
@@ -110,4 +113,4 @@ docs/              # PRD, architecture, test plan, benchmarks, roadmap
 
 ## What it is not
 
-A simulated market with play money. Bots are simple by design; the fair value is a random walk, not a model of NIFTY. Not investment advice.
+A simulated market with play money. Bots are simple by design; the fair value is a random walk, not a model of NIFTY. The options bot is a tool with written rules, not a promise of profit. Not investment advice.

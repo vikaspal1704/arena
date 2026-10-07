@@ -62,6 +62,26 @@ Every test below runs in CI (`.github/workflows/ci.yml`).
 | `static files cannot escape the build folder` | Encoded-slash traversal refused |
 | `mock bridge serves Arena and streams sequenced ticks to its own origin` | Gap-free sequence, 5 levels a side |
 | `without credentials the bridge still runs and says how to set up` | Setup state |
+| `index_packets_match_the_official_parser` | 32-byte index packets (NIFTY 50, SENSEX, India VIX) vs Zerodha's parser |
+| `paise_to_rupees_is_exact_and_rejects_bad_prices` | Order prices go out as exact rupee strings; negatives and fractions refused |
+| `order calls send the documented form and read the latest order state` | Place, modify (SL trigger), cancel, latest status and average price |
+
+## Options bot (`npm test` in `bot/`, node:test)
+
+| Area | Checks |
+|------|--------|
+| Indicators and candles | EMA and Wilder ATR against hand values; 5-minute candles aligned to 09:15, pre-open ignored, closed on time without a tick |
+| Config | Defaults valid; risk per trade above 10% of capital, daily cap above 20%, unknown keys and bad session times refused |
+| Charges | A NIFTY round trip against a hand calculation (2026 STT); BSE exchange rate |
+| Strategy | Fresh breakout with trend is a signal; second close is not fresh; counter-trend blocked; one trade per direction; failed breakout detected; no history, no trade |
+| Option choice | Expiry-day skip; ATM then OTM order; spread, depth, stale quote, stop-too-tight and budget each rejected with a reason |
+| Risk | Every gate (window, expiry cutoff, VIX, kill switch, event day, cooldown, streak, daily cap, capital floor); equity carries across days |
+| Exits | Breakeven, trailing (never down), target, stop, time stop, square-off |
+| Paper broker | Fills walk the real depth within the limit; SL-limit stop triggers and gaps like the exchange's |
+| Live broker (scripted Kite) | Entry timeout cancels and keeps a partial fill; exit cancels the exchange stop before selling, never oversells; repricing then hand-over; rejected or outside-cancelled stops raise alerts |
+| Ticker | Full-mode subscribe, token changes as unsubscribe/subscribe, parsed ticks, against a local WebSocket server |
+| Live gate | Locked until enabled, acknowledged, 20 paper days and trades, profitable after charges, and confirmed at a terminal |
+| Whole days (replay) | Trend up buys a call and exits at target; trend down buys a put; a failed breakout loses less than the risk limit; replays identical; the STOP file flattens and halts; event days and a losing streak keep it out; restart re-arms a paper stop and hands a live position to you |
 
 ## End to end (`npm run test:e2e`, Playwright, Chromium)
 

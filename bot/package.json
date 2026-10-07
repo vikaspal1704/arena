@@ -1,0 +1,22 @@
+{
+  "name": "arena-bot",
+  "private": true,
+  "version": "0.1.0",
+  "description": "NIFTY and SENSEX options bot on Kite Connect: paper trading first, real orders only behind explicit gates.",
+  "license": "MIT",
+  "type": "module",
+  "engines": {
+    "node": ">=22.12"
+  },
+  "scripts": {
+    "paper": "node src/run.mjs",
+    "live": "node src/run.mjs --live",
+    "demo": "node src/replay.mjs --synthetic=trend-up && node src/replay.mjs --synthetic=fakeout",
+    "replay": "node src/replay.mjs",
+    "report": "node src/report.mjs",
+    "test": "node --test test/*.test.mjs"
+  },
+  "dependencies": {
+    "ws": "^8.22.0"
+  }
+}

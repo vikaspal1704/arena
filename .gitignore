@@ -11,3 +11,10 @@ __pycache__/
 # Kite Connect credentials and the day's session token: never commit
 bridge/.env
 bridge/.kite-session.json
+
+# Trading bot: your settings, its state, logs and recorded exchange data stay on your machine
+bot/config.json
+bot/state/
+bot/logs/
+bot/recordings/
+bot/STOP

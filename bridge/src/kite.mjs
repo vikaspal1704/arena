@@ -88,11 +88,87 @@ export class KiteClient {
     const data = await this.request('/quote/ltp', { query: { i: keys } });
     return Object.fromEntries(Object.entries(data).map(([k, v]) => [k, rupeesToPaise(v.last_price)]));
   }
+
+  /**
+   * Candles for one instrument, oldest first, prices in paise.
+   * `from` and `to` are 'YYYY-MM-DD HH:MM:SS' in India time; `interval` is e.g. '5minute'.
+   */
+  async historical(token, interval, from, to) {
+    const data = await this.request(`/instruments/historical/${token}/${interval}`, { query: { from, to } });
+    return data.candles.map(([ts, o, h, l, c]) => ({
+      // Kite writes the offset as +0530; ISO 8601 parsing wants +05:30.
+      at: Date.parse(String(ts).replace(/([+-]\d\d)(\d\d)$/, '$1:$2')),
+      o: rupeesToPaise(o),
+      h: rupeesToPaise(h),
+      l: rupeesToPaise(l),
+      c: rupeesToPaise(c),
+    }));
+  }
+
+  // ---- Orders. Only the trading bot calls these, and only in live mode. ----
+
+  /** Places a regular order; returns the order id. Prices are paise and sent as rupees. */
+  async placeOrder({ exchange, symbol, side, qty, orderType, price, trigger, product, tag }) {
+    const form = {
+      exchange,
+      tradingsymbol: symbol,
+      transaction_type: side,
+      quantity: String(qty),
+      product,
+      order_type: orderType,
+      validity: 'DAY',
+      price: paiseToRupees(price),
+    };
+    if (trigger !== undefined) form.trigger_price = paiseToRupees(trigger);
+    if (tag) form.tag = tag;
+    const data = await this.request('/orders/regular', { method: 'POST', form });
+    return String(data.order_id);
+  }
+
+  async modifyOrder(orderId, { qty, orderType, price, trigger }) {
+    const form = { quantity: String(qty), order_type: orderType, validity: 'DAY', price: paiseToRupees(price) };
+    if (trigger !== undefined) form.trigger_price = paiseToRupees(trigger);
+    await this.request(`/orders/regular/${encodeURIComponent(orderId)}`, { method: 'PUT', form });
+  }
+
+  async cancelOrder(orderId) {
+    await this.request(`/orders/regular/${encodeURIComponent(orderId)}`, { method: 'DELETE' });
+  }
+
+  /** The order's latest state: { status, filledQty, avgPrice (paise), message }. */
+  async orderStatus(orderId) {
+    const history = await this.request(`/orders/${encodeURIComponent(orderId)}`);
+    const last = history.at(-1) ?? {};
+    return {
+      status: last.status ?? 'UNKNOWN',
+      filledQty: Number(last.filled_quantity ?? 0),
+      avgPrice: rupeesToPaise(last.average_price ?? 0),
+      message: last.status_message ?? null,
+    };
+  }
+
+  /** Net positions: [{ exchange, symbol, qty }]. */
+  async positions() {
+    const data = await this.request('/portfolio/positions');
+    return (data.net ?? []).map((p) => ({ exchange: p.exchange, symbol: p.tradingsymbol, qty: Number(p.quantity) }));
+  }
+
+  /** Cash available for trading in the equity segment, in paise. */
+  async availableCash() {
+    const data = await this.request('/user/margins/equity');
+    return rupeesToPaise(data.net);
+  }
 }
 
 /** Kite prices are decimals in rupees; Arena uses integer paise. */
 export function rupeesToPaise(rupees) {
   return Math.round(Number(rupees) * 100);
+}
+
+/** Integer paise to the 'rupees.paise' string Kite expects in order forms. */
+export function paiseToRupees(paise) {
+  if (!Number.isSafeInteger(paise) || paise < 0) throw new Error(`Bad price: ${paise}`);
+  return `${Math.floor(paise / 100)}.${String(paise % 100).padStart(2, '0')}`;
 }
 
 /** RFC 4180 CSV (quoted fields may contain commas and quotes) to objects keyed by the header row. */
@@ -157,13 +233,15 @@ export function frontMonthFuture(rows, name, today) {
 // ---- Binary ticks --------------------------------------------------------
 
 const FULL_FNO_PACKET = 184;
+const FULL_INDEX_PACKET = 32;
 /** Segment (low byte of the instrument token) → divisor that turns wire integers into rupees. */
 const DIVISOR = { 3: 10_000_000, 6: 10_000 }; // currency segments; everything else is 100
 
 /**
  * Parses one binary frame from the Kite ticker into ticks with prices in
- * integer paise. Only full-mode F&O packets (184 bytes, with 5-level depth)
- * are returned; heartbeats and other packet types are skipped.
+ * integer paise. Full-mode packets are returned: F&O contracts (184 bytes,
+ * with 5-level depth) and indices (32 bytes, `index: true`, no depth).
+ * Heartbeats and other packet types are skipped.
  * Frame: [u16 count] then per packet [u16 length][packet], big-endian.
  */
 export function parseTicks(buffer) {
@@ -176,12 +254,17 @@ export function parseTicks(buffer) {
     const size = view.getUint16(offset);
     const start = offset + 2;
     offset = start + size;
-    if (size !== FULL_FNO_PACKET || offset > view.byteLength) continue;
+    if ((size !== FULL_FNO_PACKET && size !== FULL_INDEX_PACKET) || offset > view.byteLength) continue;
     const u32 = (at) => view.getUint32(start + at);
     const token = u32(0);
     const divisor = DIVISOR[token & 0xff] ?? 100;
     // Wire integers are rupees × divisor; with the usual divisor of 100 they already are paise.
     const paise = (raw) => (divisor === 100 ? raw : Math.round((raw * 100) / divisor));
+    if (size === FULL_INDEX_PACKET) {
+      const ts = u32(28);
+      out.push({ token, index: true, ltp: paise(u32(4)), close: paise(u32(20)), ts: ts ? ts * 1000 : null });
+      continue;
+    }
     const level = (i) => ({ qty: u32(64 + i * 12), price: paise(u32(64 + i * 12 + 4)), orders: view.getUint16(start + 64 + i * 12 + 8) });
     const exchangeTs = u32(60);
     out.push({
