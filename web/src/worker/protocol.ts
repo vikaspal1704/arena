@@ -3,7 +3,9 @@ import type { ArenaEvent, JournalRow, Level, Side } from '../core/types';
 
 /** UI → exchange worker. */
 export type ToExchange =
-  | { type: 'start'; seed: number }
+  | { type: 'start'; seed: number; instrument?: { tick: number; startPrice: number; lot: number } }
+  /** Real-market mode: the latest real price in paise, which the bots' fair value follows. */
+  | { type: 'anchor'; price: number }
   | { type: 'limit'; side: Side; price: number; qty: number }
   | { type: 'market'; side: Side; qty: number }
   | { type: 'cancel'; orderId: number }

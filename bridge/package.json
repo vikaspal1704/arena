@@ -1,0 +1,22 @@
+{
+  "name": "arena-bridge",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Local-only bridge from Kite Connect to Arena: real NIFTY futures prices and depth, served on 127.0.0.1.",
+  "license": "MIT",
+  "type": "module",
+  "engines": {
+    "node": ">=22.12"
+  },
+  "scripts": {
+    "start": "node src/server.mjs",
+    "mock": "node src/server.mjs --mock",
+    "test": "node --test test/*.test.mjs"
+  },
+  "dependencies": {
+    "ws": "^8.22.0"
+  },
+  "devDependencies": {
+    "kiteconnect": "5.3.0"
+  }
+}

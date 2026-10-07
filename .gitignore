@@ -7,3 +7,7 @@ test-results/
 __pycache__/
 *.pyc
 .venv/
+
+# Kite Connect credentials and the day's session token: never commit
+bridge/.env
+bridge/.kite-session.json

@@ -112,3 +112,49 @@ fn player_orders_trade_with_bots() {
         .iter()
         .any(|e| matches!(e.event, Event::Trade { taker_owner: 0, .. })));
 }
+
+#[test]
+fn anchored_market_follows_the_external_price_and_still_replays() {
+    let config = SimConfig {
+        start_price: 2_500_000,
+        lot: 65,
+        ..SimConfig::default()
+    };
+    let mut sim = Sim::new(config);
+    // An external price path: up 40 rupees, then down 25, in 5-paise ticks.
+    let path = (0..400).map(|i| {
+        2_500_000
+            + 5 * if i < 200 {
+                4 * i
+            } else {
+                800 - 5 * (i - 200) / 2
+            }
+    });
+    for p in path {
+        sim.anchor(Some(p));
+        sim.step(100);
+        sim.exchange().engine().check_invariants().unwrap();
+    }
+    assert!(sim.anchored());
+    let last = 2_500_000 + 5 * (800 - 5 * 199 / 2);
+    assert_eq!(sim.fair_price(), last, "fair value is the anchor");
+    let e = sim.exchange().engine();
+    let mid = (e.best_bid().unwrap() + e.best_ask().unwrap()) / 2;
+    assert!(
+        (mid - last).abs() <= 20 * config.tick,
+        "book tracks the external price (mid {mid}, anchor {last})"
+    );
+    // The journal alone replays it: no feed and no bot logic needed.
+    let replayed = Exchange::replay(e.config(), sim.exchange().journal(), usize::MAX);
+    assert_eq!(replayed.fingerprint(), sim.exchange().fingerprint());
+}
+
+#[test]
+fn anchor_rounds_to_the_tick_and_can_be_released() {
+    let mut sim = Sim::new(SimConfig::default());
+    sim.anchor(Some(2_400_003)); // between ticks: rounds to 2,400,005
+    sim.step(100);
+    assert_eq!(sim.fair_price(), 2_400_005);
+    sim.anchor(None);
+    assert!(!sim.anchored());
+}

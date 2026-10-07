@@ -94,7 +94,7 @@ self.onmessage = async (event: MessageEvent<ToExchange>) => {
   if (msg.type === 'start') {
     core = await corePromise;
     seed = msg.seed;
-    core.start(seed);
+    core.start(seed, msg.instrument);
     const dropRate = feed.dropRate;
     feed = new FeedPublisher(seed ^ 0x5eed);
     feed.dropRate = dropRate;
@@ -109,6 +109,9 @@ self.onmessage = async (event: MessageEvent<ToExchange>) => {
   }
   if (!core) return;
   switch (msg.type) {
+    case 'anchor':
+      core.anchor(msg.price);
+      return; // no status needed: the next tick reports
     case 'limit':
       if (!paused) publish(core.limit(msg.side, msg.price, msg.qty), mid());
       break;

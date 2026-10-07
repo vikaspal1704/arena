@@ -22,6 +22,8 @@ Every test below runs in CI (`.github/workflows/ci.yml`).
 | `a_changed_command_changes_every_later_fingerprint` | Fingerprint chain detects an edited journal |
 | `the_simulated_market_stays_healthy` | 20,000 steps: trades happen, both sides quoted, tight spread, book tracks fair value |
 | `player_orders_trade_with_bots` | A market buy fills against the bots |
+| `anchored_market_follows_the_external_price_and_still_replays` | Book tracks an external price path; the journal alone replays it |
+| `anchor_rounds_to_the_tick_and_can_be_released` | Anchor alignment and release |
 | CI step: native = wasm | `fingerprint` example prints `seq 4181 fingerprint 8d44c209bd24be3e`; the Vitest test expects the same from the WebAssembly build |
 
 ## Differential test (`difftest/compare.py`)
@@ -47,6 +49,20 @@ Every test below runs in CI (`.github/workflows/ci.yml`).
 | `coach_note_describes_a_fill_in_plain_words` | Spread cost against the mid before the command |
 | `next_steps_are_personal` | "Try this next" advice follows the session's numbers |
 
+## Kite bridge (`npm test` in `bridge/`, node:test)
+
+| Test | Checks |
+|------|--------|
+| `tick_parser_matches_the_official_kite_parser_byte_for_byte` | Our parser vs Zerodha's on a full-mode frame: price, depth, volume, timestamp, in exact paise |
+| `tick_parser_skips_heartbeats_and_partial_frames` | Robust to 1-byte heartbeats and truncated frames |
+| `front_month_future_skips_expired_contracts_options_and_other_underlyings` | Contract selection, including expiry day |
+| `client sends the documented headers and form, and maps Kite errors` | `X-Kite-Version`, checksum (never the secret), `TokenException` |
+| `kite login: CSRF state checked, session saved privately, contract resolved, secret never leaves` | Forged callback refused, state single-use, session file 0600, secret absent from every response and message |
+| `rejects other websites: wrong Host (DNS rebinding) and wrong Origin` | 421 and 403 |
+| `static files cannot escape the build folder` | Encoded-slash traversal refused |
+| `mock bridge serves Arena and streams sequenced ticks to its own origin` | Gap-free sequence, 5 levels a side |
+| `without credentials the bridge still runs and says how to set up` | Setup state |
+
 ## End to end (`npm run test:e2e`, Playwright, Chromium)
 
 | Test | Flow |
@@ -64,4 +80,7 @@ Every test below runs in CI (`.github/workflows/ci.yml`).
 | `e2e_trade_freely_skips_the_lessons` | "Trade freely" starts with the lessons collapsed |
 | `e2e_no_dashes_or_symbol_glyphs_in_visible_text` | No em/en dashes or text glyphs standing in for icons, on the desk and in Wrapped ([DESIGN](DESIGN.md)) |
 | `a11y_dark_theme_desk_and_wrapped` | axe-core passes in the dark theme too |
+| `e2e_real_mode_trades_around_bridge_prices` | Against the mock bridge: NSE book shown, lot from the contract, fill near the real price, Wrapped explains the seed caveat |
+| `e2e_real_mode_without_credentials_shows_setup_steps` | Setup screen with the exact redirect URL |
+| `e2e_public_site_is_unchanged_without_real_flag` | No real-market UI on the public site |
 | `e2e_layout_stays_still_while_the_market_moves` | 6 s of live market at normal speed: no watched panel moves, cumulative layout shift < 0.05 |

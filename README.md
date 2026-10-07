@@ -29,6 +29,8 @@ Built by **Vikas Pal** (Software Engineer, Fintech). Arena brings together three
 
 `?seed=123` replays the same market: the bots make exactly the same moves until you trade differently.
 
+**Real-market mode (local).** With your own Kite Connect app, a small bridge on your machine streams live NIFTY futures prices and the real 5-level book into Arena; the bots quote around the real price. Your secret stays on your machine and your orders stay simulated. Setup: [`docs/REAL_MARKET.md`](docs/REAL_MARKET.md).
+
 ---
 
 ## How it works
@@ -98,6 +100,7 @@ crates/engine/     # matching engine, sequencer, journal, fingerprint, bots (no 
 crates/wasm/       # WebAssembly exports (no wasm-bindgen)
 crates/bench/      # throughput and latency percentiles
 crates/difftest/   # emits a random command stream and this engine's results
+bridge/            # local-only Kite Connect bridge for real-market mode (Node, one runtime dependency)
 difftest/          # compares them with the Python reference engine
 web/src/core/      # pure TypeScript: wasm wrapper, feed protocol, account, charges
 web/src/worker/    # the exchange process and the benchmark worker

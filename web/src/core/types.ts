@@ -50,13 +50,31 @@ export interface JournalRow {
   orderId: number | null;
 }
 
-/** The instrument the simulator trades (mirrors SimConfig::default in Rust). */
-export const INSTRUMENT = {
+export interface InstrumentConfig {
+  name: string;
+  /** Price step in paise. */
+  tick: number;
+  /** Units per lot. */
+  lot: number;
+  /** Starting fair value in paise. */
+  startPrice: number;
+}
+
+/**
+ * The instrument being traded. Defaults mirror SimConfig::default in Rust; in
+ * real-market mode the local bridge replaces them with the live contract's
+ * (see setInstrument). Read it at render time, never cache it.
+ */
+export const INSTRUMENT: InstrumentConfig = {
   name: 'NIFTY FUT (simulated)',
   tick: 5,
   lot: 75,
   startPrice: 2_400_000,
-} as const;
+};
+
+export function setInstrument(next: InstrumentConfig): void {
+  Object.assign(INSTRUMENT, next);
+}
 
 export function ownerName(owner: number): string {
   if (owner === PLAYER) return 'You';

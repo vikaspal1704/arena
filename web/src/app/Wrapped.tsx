@@ -12,12 +12,15 @@ export function Wrapped({
   ex,
   ended,
   previousNet,
+  realMode = false,
   onRestart,
 }: {
   ex: Exchange;
   ended: Ended;
   /** Net result of the previous session in this visit, if any. */
   previousNet: number | null;
+  /** Bots followed real prices, so the seed alone doesn't reproduce the market. */
+  realMode?: boolean;
   onRestart: (sameMarket: boolean, net: number) => void;
 }) {
   const { bids, asks } = ex.book.depth(1);
@@ -134,17 +137,29 @@ export function Wrapped({
             {ended.verified ? <Check size={16} weight="bold" aria-hidden="true" /> : <X size={16} weight="bold" aria-hidden="true" />}
             <span>{ended.verified ? 'Identical to the live session, event for event.' : 'The replay differs from the live session.'}</span>
           </p>
-          <p className="muted small">With seed {ex.seed}, the bots repeat exactly the same moves until you trade differently.</p>
+          <p className="muted small">
+            {realMode
+              ? 'The bots followed live NSE prices, so this market cannot be rebuilt from the seed. The journal still replays it exactly.'
+              : `With seed ${ex.seed}, the bots repeat exactly the same moves until you trade differently.`}
+          </p>
         </section>
       </div>
 
       <div className="actions">
-        <button type="button" className="primary" onClick={() => onRestart(true, w.netPnl)}>
-          Replay this market
-        </button>
-        <button type="button" onClick={() => onRestart(false, w.netPnl)}>
-          New market
-        </button>
+        {realMode ? (
+          <button type="button" className="primary" onClick={() => onRestart(false, w.netPnl)}>
+            New session
+          </button>
+        ) : (
+          <>
+            <button type="button" className="primary" onClick={() => onRestart(true, w.netPnl)}>
+              Replay this market
+            </button>
+            <button type="button" onClick={() => onRestart(false, w.netPnl)}>
+              New market
+            </button>
+          </>
+        )}
       </div>
     </main>
   );

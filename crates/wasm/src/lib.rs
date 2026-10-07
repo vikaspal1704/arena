@@ -72,6 +72,39 @@ pub extern "C" fn arena_new(seed: u32) -> u32 {
     with(|st| st.sim.exchange().seq() as u32)
 }
 
+/// Starts a session for a specific instrument (real-market mode): price step,
+/// starting price (both in paise) and lot size in units.
+#[no_mangle]
+pub extern "C" fn arena_new_with(seed: u32, tick: f64, start_price: f64, lot: f64) -> u32 {
+    let config = SimConfig {
+        seed: seed as u64,
+        tick: (tick as i64).max(1),
+        start_price: start_price as i64,
+        lot: (lot as u64).max(1),
+        ..SimConfig::default()
+    };
+    STATE.with(|s| {
+        *s.borrow_mut() = Some(State {
+            sim: Sim::new(config),
+            replay: None,
+            out: Vec::with_capacity(4096),
+        })
+    });
+    with(|st| st.sim.exchange().seq() as u32)
+}
+
+/// Pins fair value to an external price in paise; 0 releases it.
+#[no_mangle]
+pub extern "C" fn arena_anchor(price: f64) {
+    with(|st| {
+        st.sim.anchor(if price > 0.0 {
+            Some(price as i64)
+        } else {
+            None
+        })
+    })
+}
+
 #[no_mangle]
 pub extern "C" fn arena_out_ptr() -> *const f64 {
     with(|st| st.out.as_ptr())

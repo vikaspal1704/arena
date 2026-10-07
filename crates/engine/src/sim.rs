@@ -99,6 +99,10 @@ pub struct Sim {
     last_trade: Option<Price>,
     /// Recent trade prices, for the momentum bot.
     recent: Vec<Price>,
+    /// When set, fair value follows this external price (in ticks) instead
+    /// of its random walk: "real-market mode". Bot commands still go through
+    /// the journal, so replays need neither the bots nor the external feed.
+    anchor: Option<i64>,
 }
 
 impl Sim {
@@ -118,6 +122,7 @@ impl Sim {
             mm_quoted_at: None,
             last_trade: None,
             recent: Vec::new(),
+            anchor: None,
         };
         // Seed a few levels each side so the first screen isn't empty.
         for i in 1..=5i64 {
@@ -158,6 +163,20 @@ impl Sim {
         self.now_ms
     }
 
+    /// Pins fair value to an external price (rounded to the tick), or
+    /// releases it back to the random walk with `None`. Takes effect from the
+    /// next step.
+    pub fn anchor(&mut self, price: Option<Price>) {
+        let tick = self.config.tick;
+        self.anchor = price
+            .filter(|p| *p > 0)
+            .map(|p| ((p + tick / 2) / tick).max(1));
+    }
+
+    pub fn anchored(&self) -> bool {
+        self.anchor.is_some()
+    }
+
     pub fn fair_price(&self) -> Price {
         self.fair_ticks * self.config.tick
     }
@@ -176,14 +195,20 @@ impl Sim {
     pub fn step(&mut self, dt_ms: u64) -> Vec<Stamped> {
         self.now_ms += dt_ms;
         let mut out = Vec::new();
-        // Fair value: a random walk with rare jumps ("news").
-        if self.rng.chance(350) {
-            let step = 1 + self.rng.below(2) as i64;
-            self.fair_ticks += if self.rng.chance(500) { step } else { -step };
-        }
-        if self.rng.chance(4) {
-            let jump = 10 + self.rng.below(30) as i64;
-            self.fair_ticks += if self.rng.chance(500) { jump } else { -jump };
+        // Fair value: the external price when anchored, else a random walk
+        // with rare jumps ("news"). The unanchored draws are unchanged, so
+        // every seed still gives the same market as before.
+        if let Some(a) = self.anchor {
+            self.fair_ticks = a;
+        } else {
+            if self.rng.chance(350) {
+                let step = 1 + self.rng.below(2) as i64;
+                self.fair_ticks += if self.rng.chance(500) { step } else { -step };
+            }
+            if self.rng.chance(4) {
+                let jump = 10 + self.rng.below(30) as i64;
+                self.fair_ticks += if self.rng.chance(500) { jump } else { -jump };
+            }
         }
         self.fair_ticks = self.fair_ticks.max(100);
 

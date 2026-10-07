@@ -72,6 +72,10 @@ The client applies deltas strictly in sequence. On a gap it marks its book **rec
 
 Bot commands go through the sequencer like the player's. Their logic lives outside the journal, so a replay needs only the journal, and a recorded session can be audited without trusting the bot code.
 
+## 3A. Real-market mode
+
+`Sim::anchor(price)` pins the hidden fair value to an external price; the unanchored random walk is untouched, so every seed still gives the same market (the cross-platform fingerprint test proves it). In real-market mode the local bridge (`bridge/`) streams the front-month NIFTY future from Kite Connect and the browser anchors the simulator to each tick. Bot commands still go through the sequencer, so the journal replays a real-market session exactly without the feed or the bots. Details and the security model: [REAL_MARKET.md](REAL_MARKET.md).
+
 ## 4. Session Wrapped
 
 Charges use F&O Wrapped's dated rate table for index futures (2026): brokerage min(₹20, 0.03%) per executed order, STT 0.05% of sells, NSE ₹1.73 per lakh, SEBI ₹10 per crore, stamp duty 0.002% of buys, GST 18% on brokerage + exchange + SEBI. "Against fair value" sums, over every fill, how far the price was from the hidden fair value at that moment, signed so that negative means edge given away: mostly the spread, plus timing.

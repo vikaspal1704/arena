@@ -7,6 +7,8 @@ const JOURNAL_WORDS = 8;
 interface Exports {
   memory: WebAssembly.Memory;
   arena_new(seed: number): number;
+  arena_new_with(seed: number, tick: number, startPrice: number, lot: number): number;
+  arena_anchor(price: number): void;
   arena_out_ptr(): number;
   arena_step(dtMs: number): number;
   arena_limit(side: number, price: number, qty: number): number;
@@ -99,8 +101,14 @@ export class ArenaCore {
   }
 
   /** Starts a new session; returns the setup events' journal length. */
-  start(seed: number): number {
-    return this.x.arena_new(seed >>> 0);
+  start(seed: number, instrument?: { tick: number; startPrice: number; lot: number }): number {
+    if (!instrument) return this.x.arena_new(seed >>> 0);
+    return this.x.arena_new_with(seed >>> 0, instrument.tick, instrument.startPrice, instrument.lot);
+  }
+
+  /** Pins the hidden fair value to an external price in paise (real-market mode); null releases it. */
+  anchor(price: number | null): void {
+    this.x.arena_anchor(price ?? 0);
   }
 
   step(dtMs: number): ArenaEvent[] {

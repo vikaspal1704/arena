@@ -1121,3 +1121,66 @@ button.link:hover {
   margin: -0.4rem 0 1rem;
   max-width: 80ch;
 }
+
+/* Real-market mode */
+.button.primary {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--accent-ink);
+  font-weight: 600;
+}
+
+.realbook-cols {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 1rem;
+}
+
+.realbook li {
+  display: grid;
+  grid-template-columns: 1fr 4rem 2rem;
+  gap: 0.4rem;
+  font-family: 'Geist Mono Variable', ui-monospace, monospace;
+  font-variant-numeric: tabular-nums;
+  font-size: 0.86rem;
+  height: 1.4rem;
+}
+
+.realbook li .sz,
+.realbook li .n {
+  text-align: right;
+}
+
+.realbook .bid .px {
+  color: var(--up);
+}
+
+.realbook .ask .px {
+  color: var(--down);
+}
+
+.right:has(.realbook) {
+  grid-template-rows: auto auto 1fr;
+}
+
+.realsetup {
+  max-width: 640px;
+  margin: 4rem auto;
+  padding: 0 1.25rem;
+}
+
+.realsetup h1 {
+  font-size: 1.6rem;
+  margin: 0 0 1rem;
+}
+
+.realsetup code {
+  font-family: 'Geist Mono Variable', ui-monospace, monospace;
+  font-size: 0.9em;
+}
+
+.realsetup ol {
+  padding-left: 1.2rem;
+  display: grid;
+  gap: 0.4rem;
+}

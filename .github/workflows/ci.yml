@@ -44,6 +44,24 @@ jobs:
       - name: 1.5 million random commands must give identical results
         run: python difftest/compare.py --seeds 1-300 --count 5000 | tee -a "$GITHUB_STEP_SUMMARY"
 
+  bridge:
+    name: Kite bridge (unit tests, parser vs official SDK)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: bridge
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: bridge/package-lock.json
+      - run: npm ci
+      - run: npm test
+      - name: Runtime dependencies have no known vulnerabilities
+        run: npm audit --omit=dev --audit-level=low
+
   web:
     name: Web app (lint, types, unit, e2e, build)
     runs-on: ubuntu-latest
@@ -65,5 +83,6 @@ jobs:
       - run: npm run typecheck
       - run: npm test
       - run: npm run build
+      - run: npm ci --prefix ../bridge
       - run: npx playwright install --with-deps chromium
       - run: npm run test:e2e

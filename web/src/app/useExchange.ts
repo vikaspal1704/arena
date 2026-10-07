@@ -157,7 +157,7 @@ export function useExchange() {
   }, [render]);
 
   const start = useCallback(
-    (s: number) => {
+    (s: number, instrument?: { tick: number; startPrice: number; lot: number }) => {
       book.current = new FeedBook();
       account.current = new Account();
       tape.current = [];
@@ -165,7 +165,7 @@ export function useExchange() {
       setReplay(null);
       setEnded(null);
       setNotes([]);
-      send({ type: 'start', seed: s });
+      send({ type: 'start', seed: s, instrument });
     },
     [send],
   );
@@ -183,6 +183,7 @@ export function useExchange() {
       speed: (speed: number) => send({ type: 'speed', speed }),
       chaos: (dropRate: number) => send({ type: 'chaos', dropRate }),
       dismissNote: (id: number) => setNotes((n) => n.filter((x) => x.id !== id)),
+      anchor: (price: number) => send({ type: 'anchor', price }),
       replay: (upto: number) => send({ type: 'replay', upto }),
       end: () => send({ type: 'end' }),
       journal: () =>
