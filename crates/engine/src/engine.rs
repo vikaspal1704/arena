@@ -344,6 +344,20 @@ impl Engine {
         self.asks.best_price()
     }
 
+    /// Number of price levels: (bids, asks).
+    pub fn level_counts(&self) -> (usize, usize) {
+        (self.bids.level_count(), self.asks.level_count())
+    }
+
+    /// Number of live orders resting in the book (O(levels)).
+    pub fn resting_orders(&self) -> u64 {
+        [&self.bids, &self.asks]
+            .iter()
+            .flat_map(|side| side.iter())
+            .map(|(_, level)| level.live as u64)
+            .sum()
+    }
+
     /// Aggregated book, best levels first.
     pub fn depth(&self, levels: usize) -> (Vec<BookLevel>, Vec<BookLevel>) {
         (self.bids.levels(levels), self.asks.levels(levels))

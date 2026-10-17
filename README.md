@@ -7,8 +7,8 @@ Trade index futures against a market of bots. Watch your order wait in the queue
 | | |
 |---|---|
 | **Live** | https://vikaspal1704.github.io/arena/ |
-| **Engine** | Rust, no dependencies, compiled to a 79 KB WebAssembly module with no JavaScript glue |
-| **Speed** | ~2 million orders/s, p50 ≈ 350 ns per order (native, one core); about the same in the browser ([benchmarks](docs/BENCHMARKS.md)) |
+| **Engine** | Rust, no dependencies, compiled to an 81 KB WebAssembly module with no JavaScript glue |
+| **Speed** | 2.5–3.3 M commands/s, p50 ≈ 280–340 ns, p99 ≈ 1.2–1.4 µs (native, one core, empty starting book); 1.5–1.7 M commands/s on a book of 1 million orders; 1.7–2.7 M commands/s as WebAssembly in Node and Chromium. Cancels hit live orders (0% rejected, checked by the benchmark). Machine, method and full numbers: [benchmarks](docs/BENCHMARKS.md) |
 | **Correctness** | Differential-tested against an independent Python engine on 1.5 million random commands in CI |
 | **Stack** | Rust · WebAssembly · TypeScript · React · Web Workers · Vite · Vitest · Playwright |
 | **License** | [MIT](LICENSE) |
@@ -83,7 +83,7 @@ Full list: [`docs/TEST_PLAN.md`](docs/TEST_PLAN.md).
 ```bash
 # Engine: tests, benchmark, differential test
 cargo test --release
-cargo run --release -p arena-bench -- 2000000
+cargo run --release -p arena-bench -- 2000000   # standard and deep-book scenarios
 pip install git+https://github.com/vikaspal1704/mini-matching-engine
 cargo build --release -p arena-difftest && python difftest/compare.py --seeds 1-20 --count 5000
 

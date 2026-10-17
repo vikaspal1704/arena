@@ -53,7 +53,7 @@ After command *n*: `chain[n] = FNV-1a(chain[n−1], seq, ts, command, every even
 
 ### 3.6 No `wasm-bindgen`
 
-The module exports plain functions taking and returning numbers. Results (events, depth, journal rows) go into a `Vec<f64>` whose pointer TypeScript reads as a `Float64Array`. Every integer involved stays below 2^53, so `f64` carries it exactly, and JavaScript gets ordinary numbers rather than BigInts. Result: a 79 KB module with zero imports, no generated glue and no build tool beyond `cargo`.
+The module exports plain functions taking and returning numbers. Results (events, depth, journal rows) go into a `Vec<f64>` whose pointer TypeScript reads as a `Float64Array`. Every integer involved stays below 2^53, so `f64` carries it exactly, and JavaScript gets ordinary numbers rather than BigInts. Result: an 81 KB module with zero imports, no generated glue and no build tool beyond `cargo`.
 
 ### 3.7 The exchange runs in a Web Worker
 
@@ -82,4 +82,4 @@ Charges use F&O Wrapped's dated rate table for index futures (2026): brokerage m
 
 ## 5. Limits
 
-Single instrument, single process, in-memory. No self-trade prevention, no auctions, no circuit breakers. The p99.9 latency (≈15–20 µs on a shared VM) comes from allocation inside price levels and is the next thing to fix ([BENCHMARKS](BENCHMARKS.md)).
+Single instrument, single process, in-memory. No self-trade prevention, no auctions, no circuit breakers. The p99.9 latency (≈5–9 µs from an empty book, 15–38 µs on a book of a million orders, on a shared VM) is the next thing to fix ([BENCHMARKS](BENCHMARKS.md)).
