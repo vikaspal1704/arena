@@ -23,6 +23,12 @@ Every test below runs in CI (`.github/workflows/ci.yml`).
 | `stp_reports_a_market_orders_remainder_as_self_trade` | Market remainder is `SelfTrade`, not `Expired` |
 | `stp_lets_different_owners_trade` | Prevention only applies to the same owner |
 | `invariants_hold_over_random_streams` | 20 seeds × 10,000 random commands from 4 owners, with and without self-trade prevention; `check_invariants` after each; with prevention, no trade has the same owner on both sides |
+| `book_is_never_crossed_and_levels_equal_their_live_orders` | Property (proptest, 512 cases × up to 300 commands, random tick / max qty / self-trade mode): after every command best bid < best ask, each level's qty and order count equal the sum over its live queued orders (summed in `u128`), and every `Level` event equals the level as it now is |
+| `traded_quantity_is_conserved` | Property: buy fills = sell fills = traded qty; each order's original qty = remaining + traded; trades print at the maker's price, within the taker's limit |
+| `replaying_the_journal_reproduces_every_fingerprint` | Property: a fresh exchange fed the journal reproduces each command's events, the fingerprint after every entry, and the book hash |
+| `arbitrary_commands_never_panic` | Property: every field of every command drawn from its full range (any `u32` owner, `i64` price, `u64` qty and order id, `u64` timestamp); no panic, invariants hold |
+| `extreme_values_are_rejected_or_handled` | `i64::MIN/MAX` prices, `0` and `u64::MAX` quantities and ids, `u32::MAX` owners, in both configurations |
+| `a_max_qty_that_could_overflow_a_level_is_refused` | `Engine::new` refuses `max_qty` above `MAX_ORDER_QTY` (2^32); found by the properties above, where `u64::MAX` orders wrapped a level total |
 | `every_cancel_targets_a_live_order` | Benchmark workload: 0 rejected cancels over 3 seeds × 50,000 commands |
 | `deep_book_starts_with_a_million_orders_on_50k_levels` | Deep-book scenario's starting book; 0 rejected cancels |
 | `same_seed_same_commands` | Workload is seeded |

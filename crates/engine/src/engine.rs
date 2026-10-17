@@ -6,11 +6,20 @@ use crate::types::{
     RejectReason, Side,
 };
 
+/// Largest `max_qty` an engine accepts: 2^32.
+///
+/// A level's total quantity is a `u64` and its order count a `u32`. With
+/// orders of at most 2^32 units, the total can only overflow once a single
+/// price holds 2^32 orders, which the order count cannot represent either
+/// (and which would need over 200 GB of order archive). Above this bound a
+/// handful of large orders could wrap the total, so `Engine::new` refuses it.
+pub const MAX_ORDER_QTY: Qty = 1 << 32;
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct EngineConfig {
     /// Prices must be a multiple of this (1 = any integer price).
     pub tick: Price,
-    /// Largest quantity a single order may have.
+    /// Largest quantity a single order may have (at most `MAX_ORDER_QTY`).
     pub max_qty: Qty,
     /// What happens when an incoming order would trade with a resting order
     /// of the same owner. Off by default, which is the reference behaviour.
@@ -60,6 +69,10 @@ pub struct Engine {
 impl Engine {
     pub fn new(config: EngineConfig) -> Self {
         assert!(config.tick >= 1, "tick must be >= 1");
+        assert!(
+            config.max_qty <= MAX_ORDER_QTY,
+            "max_qty must be <= MAX_ORDER_QTY (2^32)"
+        );
         Engine {
             config,
             bids: BookSide::new(Side::Buy),
