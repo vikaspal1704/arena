@@ -68,7 +68,7 @@ What it does not detect: **tampering**. FNV-1a is not collision-resistant, so a 
 
 ### 3.6 No `wasm-bindgen`
 
-The module exports plain functions taking and returning numbers. Results (events, depth, journal rows) go into a `Vec<f64>` whose pointer TypeScript reads as a `Float64Array`. Every integer involved stays below 2^53, so `f64` carries it exactly, and JavaScript gets ordinary numbers rather than BigInts. Result: an 81 KB module with zero imports, no generated glue and no build tool beyond `cargo`.
+The module exports plain functions taking and returning numbers. Results (events, depth, journal rows) go into a `Vec<f64>` whose pointer TypeScript reads as a `Float64Array`. Prices, quantities, ids, owners and timestamps in a session stay below 2^53, so `f64` carries them exactly, and JavaScript gets ordinary numbers rather than BigInts. One exception: a market buy is accepted at the sentinel price `Price::MAX`, which `f64` cannot represent exactly; the app ignores the price of market orders (`web/src/core/session.ts`). The fingerprint is a 64-bit value, so it is passed as two 32-bit halves. Result: an 81 KB module with zero imports, no generated glue and no build tool beyond `cargo`.
 
 ### 3.7 The exchange runs in a Web Worker
 

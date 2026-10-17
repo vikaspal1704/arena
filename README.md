@@ -9,7 +9,7 @@ Trade index futures against a market of bots. Watch your order wait in the queue
 | **Live** | https://vikaspal1704.github.io/arena/ |
 | **Engine** | Rust, no dependencies, compiled to an 81 KB WebAssembly module with no JavaScript glue |
 | **Speed** | 2.4–3.7 M commands/s, p50 ≈ 220–320 ns, p99 ≈ 0.9–1.3 µs (native, one core, empty starting book, shared VM); 1.4–1.9 M commands/s on a book of 1 million orders; 2.1–2.5 M commands/s as WebAssembly in Node and Chromium. Cancels hit live orders (0% rejected, checked by the benchmark). Timings vary by host (another VM of the same class measured 20–35% lower); machine, method and full numbers: [benchmarks](docs/BENCHMARKS.md) |
-| **Correctness** | Differential-tested against an independent Python engine on 1.5 million random commands in CI |
+| **Correctness** | Differential-tested against a separately written Python engine on 1.5 million random commands in CI (the reference is the author's earlier project, so it checks the implementation, not the reading of the rules); property tests and invariant checks on top |
 | **Stack** | Rust · WebAssembly · TypeScript · React · Web Workers · Vite · Vitest · Playwright |
 | **License** | [MIT](LICENSE) |
 
@@ -57,7 +57,7 @@ flowchart LR
 - **WebAssembly** (`crates/wasm`): plain exported functions; results are written to a buffer in module memory that TypeScript reads directly. Native and WebAssembly builds produce the same fingerprint (checked in CI).
 - **Two channels**, like a real venue: market data is a numbered, lossy stream of deltas with gap detection and snapshot recovery; the player's own order events use a reliable private channel.
 - **Session Wrapped** (`web/src/core/session.ts`): FIFO round trips, charges from F&O Wrapped's dated rate table, edge against fair value, personal "try this next" advice, and a comparison with your previous session.
-- **A screen you can read while it moves**: the ladder has fixed slots so rows never jump, changed quantities flash briefly instead of moving, and boxes have fixed sizes. Cumulative layout shift during live trading fell from 0.25 to 0.009, and a browser test keeps it under 0.05.
+- **A screen you can read while it moves**: the ladder has fixed slots so rows never jump, changed quantities flash briefly instead of moving, and boxes have fixed sizes. Over 6 s of live trading, cumulative layout shift measures 0.012–0.015 (three runs of `e2e_layout_stays_still_while_the_market_moves`, which prints it), and the test fails above 0.05.
 
 Design decisions and trade-offs: [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md). Visual design rules: [`docs/DESIGN.md`](docs/DESIGN.md).
 
@@ -72,9 +72,11 @@ Design decisions and trade-offs: [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md).
 | Replays are exact | Every prefix of a 3,000-step session replays to the recorded fingerprint; changing one command changes every later fingerprint. The browser checks this on demand. This is a consistency check against accidental divergence, not tamper evidence ([why](docs/ARCHITECTURE.md#35-the-fingerprint-chain)). |
 | It is deterministic everywhere | Same seed → same fingerprint natively, in WebAssembly (Node), and in two separate browser pages (Playwright). |
 | The feed heals | Under 20% packet loss, the client book rebuilt from deltas and snapshots ends identical to the engine's book. |
-| Nothing leaves the browser | Playwright asserts zero third-party requests; the page's CSP allows only its own origin. |
+| Nothing leaves the browser | Playwright asserts zero third-party requests. The page's CSP (`web/index.html`) allows scripts, styles, workers and connections from its own origin only, plus WebSocket connections to `localhost` / `127.0.0.1` for the optional local Kite bridge; images may also be `data:` URLs and styles may be inline. |
 
 Full list: [`docs/TEST_PLAN.md`](docs/TEST_PLAN.md).
+
+**Check it yourself:** `scripts/verify-claims.sh` runs every engine claim above and prints PASS / FAIL for each (`--mutations` also breaks the engine on purpose to show the tests notice). Reading order, claim-to-code map and known weak spots: [`docs/REVIEWING.md`](docs/REVIEWING.md).
 
 ---
 
@@ -108,7 +110,8 @@ difftest/          # compares them with the Python reference engine
 web/src/core/      # pure TypeScript: wasm wrapper, feed protocol, account, charges
 web/src/worker/    # the exchange process and the benchmark worker
 web/src/app/       # trading desk, under-the-hood panels, Wrapped
-docs/              # PRD, architecture, test plan, benchmarks, roadmap
+docs/              # PRD, architecture, test plan, benchmarks, roadmap, reviewer's guide
+scripts/           # verify-claims.sh: checks every engine claim
 ```
 
 ## Known limits

@@ -120,4 +120,4 @@ Every test below runs in CI (`.github/workflows/ci.yml`).
 | `e2e_real_mode_trades_around_bridge_prices` | Against the mock bridge: NSE book shown, lot from the contract, fill near the real price, Wrapped explains the seed caveat |
 | `e2e_real_mode_without_credentials_shows_setup_steps` | Setup screen with the exact redirect URL |
 | `e2e_public_site_is_unchanged_without_real_flag` | No real-market UI on the public site |
-| `e2e_layout_stays_still_while_the_market_moves` | 6 s of live market at normal speed: no watched panel moves, cumulative layout shift < 0.05 |
+| `e2e_layout_stays_still_while_the_market_moves` | 6 s of live market at normal speed: no watched panel moves, cumulative layout shift < 0.05 (prints the measured value) |
