@@ -108,4 +108,4 @@ Charges use F&O Wrapped's dated rate table for index futures (2026): brokerage m
 | **Quantity bounds** | `max_qty` is at most 2^32 (`MAX_ORDER_QTY`, checked by `Engine::new`), and a level counts its orders in a `u32`, so a single price can hold fewer than 2^32 orders. |
 | **Fingerprint is not tamper-evident** | FNV-1a detects accidental divergence only (§3.5). |
 | **Order types** | Limit (rests until filled or cancelled), market (immediate-or-cancel) and cancel only. No amend, no other time-in-force, no auctions, no circuit breakers. |
-| **Latency tail** | p99.9 is about 5–9 µs from an empty book and 15–38 µs on a book of a million orders, on a shared VM ([BENCHMARKS](BENCHMARKS.md)). |
+| **Latency tail** | p99.9 is about 3–7 µs from an empty book and 7–15 µs on a book of a million orders, on a shared VM ([BENCHMARKS](BENCHMARKS.md)). |

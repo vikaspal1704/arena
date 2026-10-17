@@ -21,7 +21,7 @@ Each scenario sends a seeded mix through `Exchange::submit` (sequence, journal, 
 
 ## Results
 
-Measured on 2026-10-17: one core of an Intel Xeon @ 2.10 GHz (4-vCPU shared cloud VM, no core isolation), rustc 1.97.0, release profile (`opt-level = 3`, LTO, `codegen-units = 1`). Five runs of `cargo run --release -p arena-bench -- 2000000`; ranges are min–max across the runs. Counts are identical in every run (the workload is seeded).
+Measured on 2026-10-17 at commit `1f2171c`: one core of an Intel Xeon @ 2.10 GHz (4-vCPU shared cloud VM, no core isolation), rustc 1.97.0, release profile (`opt-level = 3`, LTO, `codegen-units = 1`). Five runs of `cargo run --release -p arena-bench -- 2000000`; ranges are min–max across the runs. Counts and fingerprints are identical in every run (the workload is seeded); timings are not. On this shared VM, repeated sets of runs on the same code moved by up to about 25%, so read the ranges, not any single number.
 
 | | `standard` | `deep` |
 |---|---|---|
@@ -30,37 +30,38 @@ Measured on 2026-10-17: one core of an Intel Xeon @ 2.10 GHz (4-vCPU shared clou
 | Cancels (rejected) | 499,474 (0, 0.00%) | 499,692 (0, 0.00%) |
 | Book levels, average / max | 109.5 / 165 | 50,145.1 / 50,383 |
 | Resting orders at the end | 3,215 | 1,154,386 |
-| Throughput | 2.5–3.3 M commands/s | 1.45–1.73 M commands/s |
-| Latency p50 | 278–342 ns | 615–687 ns |
-| Latency p99 | 1.15–1.38 µs | 1.60–1.79 µs |
-| Latency p99.9 | 5.3–8.9 µs | 15–38 µs |
+| Throughput | 2.38–3.74 M commands/s | 1.44–1.92 M commands/s |
+| Latency p50 | 220–323 ns | 600–688 ns |
+| Latency p99 | 0.92–1.31 µs | 1.52–1.81 µs |
+| Latency p99.9 | 3.4–6.6 µs | 7.1–15.1 µs |
 | Fingerprint | `e23f832f942290da` | `4e63e48c88c947ef` |
 
-The deep book is roughly twice as slow at the median. It has not been profiled; the likely causes are a deeper `BTreeMap` (50,000 levels instead of ~110) and cache misses across more than a million live orders. Its p99.9 is wide and noisy across runs.
+The deep book is roughly twice as slow at the median. It has not been profiled; the likely causes are a deeper `BTreeMap` (50,000 levels instead of ~110) and cache misses across more than a million live orders.
 
 ### WebAssembly
 
-The browser benchmark runs the `standard` mix (`workload::commands`, seed 7) through the same code compiled to `wasm32-unknown-unknown` (81 KB module).
+The browser benchmark runs the `standard` mix (`workload::commands`, seed 7) through the same code compiled to `wasm32-unknown-unknown` (81 KB module, 83,342 bytes).
 
 | Runtime | Commands | Trades | Throughput |
 |---------|----------|--------|-----------|
-| Node v22.22.0 | 2,000,000 | 986,325 (same as native) | 1.70–2.71 M commands/s (5 runs) |
-| Headless Chromium 141 | 1,000,000 | 490,828 (same as native for 1M) | 2.21–2.72 M commands/s (3 runs) |
+| Node v22.22.0 | 2,000,000 | 986,325 (same as native) | 2.06–2.49 M commands/s (5 runs) |
+| Chromium 141 (headless, Playwright) | 1,000,000 | 490,828 (same as native for 1M) | 2.21–2.36 M commands/s (3 runs) |
 
-The Chromium figure was taken on a test page that instantiates the module and calls `arena_bench_prepare` / `arena_bench_run` on the main thread; the app's **Run 1M commands** button calls the same two exports from a Web Worker.
+Both were measured with small harnesses that instantiate the module and time `arena_bench_run` after `arena_bench_prepare`; the Chromium one runs on the page's main thread, while the app's **Run 1M commands** button calls the same two exports from a Web Worker.
 
 ## What preallocation buys
 
-Same machine, three runs each with `NO_PREALLOC=1` (vectors grow on demand):
+Same machine and code, three runs each with `NO_PREALLOC=1` (vectors grow on demand):
 
 | | `standard` | `deep` |
 |---|---|---|
-| Throughput | 2.1–2.7 M commands/s | 0.96–1.59 M commands/s |
-| Latency p99 | 2.1–18.8 µs | 18.4–22.1 µs |
-| Latency p99.9 | 6.5–39.2 µs | 39.9–56.1 µs |
+| Throughput | 2.39–2.66 M commands/s | 1.52–1.61 M commands/s |
+| Latency p50 | 297–328 ns | 625–666 ns |
+| Latency p99 | 2.07–2.25 µs | 2.44–2.57 µs |
+| Latency p99.9 | 6.1–8.7 µs | 13.6–15.8 µs |
 
-Compared with the preallocated runs above, the median barely moves while p99 grows by up to an order of magnitude: the tail comes from growing and first-touching the journal and order archive (reallocation and page faults), not from matching.
+Against the preallocated runs above, the median and throughput ranges overlap, while p99 is about 1.5–2× higher without preallocation: part of the tail is growing and first-touching the journal and order archive (reallocation and page faults). Earlier, unrepeatable runs showed much larger no-preallocation spikes (p99 near 20 µs); they did not reproduce, so they are not claimed here.
 
 ## Next
 
-The remaining p99.9 comes from allocation inside levels (`VecDeque` growth, `BTreeMap` nodes), cache misses in the deep book, and VM jitter. Options, in order: a flat price-indexed level array around the mid, an intrusive linked list of orders per level backed by the existing order `Vec`, and pinning the benchmark to an isolated core.
+The remaining p99.9 is unprofiled; the likely sources are allocation inside levels (`VecDeque` growth, `BTreeMap` nodes), cache misses in the deep book, and VM jitter. Options, in order: a flat price-indexed level array around the mid, an intrusive linked list of orders per level backed by the existing order `Vec`, and pinning the benchmark to an isolated core.
