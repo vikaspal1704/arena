@@ -27,7 +27,18 @@ Identical to [mini-matching-engine](https://github.com/vikaspal1704/mini-matchin
 - Whatever remains of a limit order rests; whatever remains of a market order expires (IOC).
 - After every command the book is not crossed: best bid < best ask.
 
-Arena adds market orders, a tick grid, a per-order quantity cap, owners (only the owner may cancel) and L2 `Level` events. A market order is defined as a limit at the worst possible price whose remainder is cancelled, which is also how the differential test expresses it to the reference engine.
+Arena adds market orders, a tick grid, a per-order quantity cap, owners (only the owner may cancel), optional self-trade prevention and L2 `Level` events. A market order is defined as a limit at the worst possible price whose remainder is cancelled, which is also how the differential test expresses it to the reference engine.
+
+### Self-trade prevention
+
+`EngineConfig::self_trade` selects the policy. The default, `Off`, is the reference behaviour: orders of the same owner trade with each other, and the differential test checks that. `CancelNewest` works as follows:
+
+- While matching, the incoming order looks at the next resting order it would trade with (best price, then time priority, skipping cancelled orders). If that order has the same owner, matching stops.
+- The incoming order's remaining quantity is cancelled with `Done { reason: SelfTrade }`. It never rests, and for a market order this replaces `Expired`.
+- The resting order is not touched. Trades already made with other owners' orders, earlier in the same command, stand.
+- Orders queued behind the owner's resting order at the same level are not reached.
+
+The reference engine has no owners, so this mode is covered by the Rust unit tests and the random-stream invariant test only, not by the differential test. The simulation and the browser run with the default, so fingerprints are unchanged.
 
 ## 3. Decisions and trade-offs
 
@@ -82,4 +93,4 @@ Charges use F&O Wrapped's dated rate table for index futures (2026): brokerage m
 
 ## 5. Limits
 
-Single instrument, single process, in-memory. No self-trade prevention, no auctions, no circuit breakers. The p99.9 latency (≈5–9 µs from an empty book, 15–38 µs on a book of a million orders, on a shared VM) is the next thing to fix ([BENCHMARKS](BENCHMARKS.md)).
+Single instrument, single process, in-memory. Self-trade prevention is off by default (see §2), no auctions, no circuit breakers. The p99.9 latency (≈5–9 µs from an empty book, 15–38 µs on a book of a million orders, on a shared VM) is the next thing to fix ([BENCHMARKS](BENCHMARKS.md)).

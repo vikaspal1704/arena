@@ -21,7 +21,7 @@ pub mod sim;
 pub mod types;
 pub mod workload;
 
-pub use engine::{Engine, EngineConfig};
+pub use engine::{Engine, EngineConfig, SelfTradePrevention};
 pub use exchange::{Exchange, JournalEntry};
 pub use sim::{Sim, SimConfig, Stamped};
 pub use types::*;

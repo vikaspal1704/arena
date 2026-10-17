@@ -10,6 +10,12 @@
 //! The reference engine has limit orders and cancels only, so a market order
 //! is expressed there as a limit at an extreme price followed by a cancel of
 //! whatever is left; the Rust engine must agree with that too.
+//!
+//! Commands come from three owners. The engine runs with its default
+//! configuration (no self-trade prevention), so owners only matter for who
+//! may cancel and for the owners named in each trade. The reference engine
+//! has no owners; `compare.py` records each order's owner and applies the
+//! only-the-owner-may-cancel rule itself.
 
 use std::fmt::Write as _;
 use std::io::{self, BufWriter, Write};
@@ -29,6 +35,7 @@ fn main() {
     let mut out = BufWriter::new(stdout.lock());
 
     for _ in 0..count {
+        let owner = rng.below(3) as Owner;
         let side = if rng.chance(500) {
             Side::Buy
         } else {
@@ -36,28 +43,33 @@ fn main() {
         };
         let cmd = match rng.below(100) {
             0..=59 => Command::Limit {
-                owner: 0,
+                owner,
                 side,
                 price: 95 + rng.below(11) as Price,
                 qty: 1 + rng.below(20),
             },
             60..=69 => Command::Market {
-                owner: 0,
+                owner,
                 side,
                 qty: 1 + rng.below(40),
             },
-            70..=94 => Command::Cancel {
-                owner: 0,
-                order_id: 1 + rng.below(engine.order_count() as u64 + 2),
-            },
+            70..=94 => {
+                let order_id = 1 + rng.below(engine.order_count() as u64 + 2);
+                // Mostly the order's owner; sometimes someone else (NotOwner).
+                let owner = match engine.order(order_id) {
+                    Some(o) if rng.chance(800) => o.owner,
+                    _ => owner,
+                };
+                Command::Cancel { owner, order_id }
+            }
             95..=97 => Command::Limit {
-                owner: 0,
+                owner,
                 side,
                 price: rng.below(2) as Price - 1,
                 qty: 5,
             }, // price 0 or -1
             _ => Command::Limit {
-                owner: 0,
+                owner,
                 side,
                 price: 100,
                 qty: 0,
@@ -80,25 +92,27 @@ fn line(cmd: &Command, events: &[Event], engine: &Engine) -> String {
     let mut s = String::from("{\"cmd\":");
     match *cmd {
         Command::Limit {
+            owner,
             side: sd,
             price,
             qty,
-            ..
         } => write!(
             s,
-            "{{\"type\":\"limit\",\"side\":\"{}\",\"price\":{price},\"qty\":{qty}}}",
+            "{{\"type\":\"limit\",\"owner\":{owner},\"side\":\"{}\",\"price\":{price},\"qty\":{qty}}}",
             side(sd)
         )
         .unwrap(),
-        Command::Market { side: sd, qty, .. } => write!(
+        Command::Market { owner, side: sd, qty } => write!(
             s,
-            "{{\"type\":\"market\",\"side\":\"{}\",\"qty\":{qty}}}",
+            "{{\"type\":\"market\",\"owner\":{owner},\"side\":\"{}\",\"qty\":{qty}}}",
             side(sd)
         )
         .unwrap(),
-        Command::Cancel { order_id, .. } => {
-            write!(s, "{{\"type\":\"cancel\",\"order_id\":{order_id}}}").unwrap()
-        }
+        Command::Cancel { owner, order_id } => write!(
+            s,
+            "{{\"type\":\"cancel\",\"owner\":{owner},\"order_id\":{order_id}}}"
+        )
+        .unwrap(),
     }
     let mut order_id = None;
     let mut rejected = "null".to_string();
@@ -112,8 +126,12 @@ fn line(cmd: &Command, events: &[Event], engine: &Engine) -> String {
                 qty,
                 maker_order_id,
                 taker_order_id,
+                maker_owner,
+                taker_owner,
                 ..
-            } => trades.push(format!("[{price},{qty},{maker_order_id},{taker_order_id}]")),
+            } => trades.push(format!(
+                "[{price},{qty},{maker_order_id},{taker_order_id},{maker_owner},{taker_owner}]"
+            )),
             _ => {}
         }
     }

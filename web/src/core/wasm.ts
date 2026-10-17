@@ -28,7 +28,7 @@ interface Exports {
 
 const SIDE: Record<number, Side> = { 1: 'BUY', 2: 'SELL' };
 const REJECT: Record<number, RejectReason> = { 1: 'BAD_PRICE', 2: 'BAD_QTY', 3: 'UNKNOWN_ORDER', 4: 'NOT_CANCELLABLE', 5: 'NOT_OWNER' };
-const DONE: Record<number, DoneReason> = { 1: 'FILLED', 2: 'CANCELLED', 3: 'EXPIRED' };
+const DONE: Record<number, DoneReason> = { 1: 'FILLED', 2: 'CANCELLED', 3: 'EXPIRED', 4: 'SELF_TRADE' };
 const sideCode = (s: Side) => (s === 'BUY' ? 1 : 2);
 
 const hex = (hi: number, lo: number) => hi.toString(16).padStart(8, '0') + lo.toString(16).padStart(8, '0');

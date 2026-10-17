@@ -261,5 +261,6 @@ pub fn done_word(r: DoneReason) -> u64 {
         DoneReason::Filled => 1,
         DoneReason::Cancelled => 2,
         DoneReason::Expired => 3,
+        DoneReason::SelfTrade => 4,
     }
 }

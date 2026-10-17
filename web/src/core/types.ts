@@ -6,7 +6,7 @@ export const MARKET_MAKER = 1;
 export const MOMENTUM = 2;
 
 export type RejectReason = 'BAD_PRICE' | 'BAD_QTY' | 'UNKNOWN_ORDER' | 'NOT_CANCELLABLE' | 'NOT_OWNER';
-export type DoneReason = 'FILLED' | 'CANCELLED' | 'EXPIRED';
+export type DoneReason = 'FILLED' | 'CANCELLED' | 'EXPIRED' | 'SELF_TRADE';
 
 interface Stamp {
   /** Journal sequence number of the command that caused this event. */

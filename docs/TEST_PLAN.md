@@ -16,7 +16,16 @@ Every test below runs in CI (`.github/workflows/ci.yml`).
 | `rejects_change_nothing` | Bad price, off-tick, zero / oversized qty, unknown order: `Rejected`, no id used |
 | `only_the_owner_can_cancel_and_only_once` | `NotOwner`, `NotCancellable` |
 | `queue_shows_live_orders_front_first` | Queue view and `queue_ahead` ignore cancelled orders |
-| `invariants_hold_over_random_streams` | 20 seeds × 10,000 random commands; `check_invariants` after each |
+| `without_stp_an_owner_trades_with_itself` | Default config: same-owner orders trade (reference behaviour) |
+| `stp_cancels_the_incoming_order_and_keeps_the_resting_one` | Cancel-newest: no trade, incoming `Done(SelfTrade)`, resting order and book untouched |
+| `stp_keeps_trades_made_before_reaching_the_own_order` | Trades with other owners first stand; orders behind the own order are not reached |
+| `stp_skips_the_owners_cancelled_orders` | A cancelled own order (tombstone) does not trigger prevention |
+| `stp_reports_a_market_orders_remainder_as_self_trade` | Market remainder is `SelfTrade`, not `Expired` |
+| `stp_lets_different_owners_trade` | Prevention only applies to the same owner |
+| `invariants_hold_over_random_streams` | 20 seeds × 10,000 random commands from 4 owners, with and without self-trade prevention; `check_invariants` after each; with prevention, no trade has the same owner on both sides |
+| `every_cancel_targets_a_live_order` | Benchmark workload: 0 rejected cancels over 3 seeds × 50,000 commands |
+| `deep_book_starts_with_a_million_orders_on_50k_levels` | Deep-book scenario's starting book; 0 rejected cancels |
+| `same_seed_same_commands` | Workload is seeded |
 | `replaying_any_prefix_gives_the_same_fingerprint_and_book` | Prefixes 0, 1, 17, 500, all |
 | `same_seed_same_market_different_seed_different_market` | Determinism of the simulation |
 | `a_changed_command_changes_every_later_fingerprint` | Fingerprint chain detects an edited journal |
@@ -28,7 +37,7 @@ Every test below runs in CI (`.github/workflows/ci.yml`).
 
 ## Differential test (`difftest/compare.py`)
 
-300 seeds × 5,000 commands against [mini-matching-engine](https://github.com/vikaspal1704/mini-matching-engine). Per command it compares order id, remaining quantity, rejection reason, every trade (price, qty, maker id, taker id) and the full aggregated book. The stream includes market orders, cancels of live, filled, cancelled and unknown orders, and invalid prices and quantities.
+300 seeds × 5,000 commands against [mini-matching-engine](https://github.com/vikaspal1704/mini-matching-engine), with the Rust engine in its default configuration (no self-trade prevention). Per command it compares order id, remaining quantity, rejection reason, every trade (price, qty, maker id, taker id, maker owner, taker owner) and the full aggregated book. The stream comes from three owners and includes market orders, same-owner trades, cancels of live, filled, cancelled and unknown orders, cancels by someone other than the owner, and invalid prices and quantities. The reference engine has no owners, so `compare.py` records each order's owner and applies the only-the-owner-may-cancel rule itself.
 
 ## Web core (`npm test`, Vitest, against the real WebAssembly build)
 

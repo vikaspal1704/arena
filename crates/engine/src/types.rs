@@ -88,6 +88,9 @@ pub enum DoneReason {
     Cancelled,
     /// The unfilled part of a market order.
     Expired,
+    /// The remainder of an incoming order, cancelled by self-trade
+    /// prevention (`SelfTradePrevention::CancelNewest`).
+    SelfTrade,
 }
 
 /// What the exchange says happened. Events are the only output: the book,
