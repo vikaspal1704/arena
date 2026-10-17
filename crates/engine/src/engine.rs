@@ -508,3 +508,44 @@ impl Engine {
         Ok(())
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The tombstone limit in docs/ARCHITECTURE.md ("Known limits"): a level
+    /// that keeps one live order and never trades keeps every cancelled id,
+    /// and drops them all when its last live order goes.
+    #[test]
+    fn tombstones_accumulate_until_the_level_empties() {
+        let mut e = Engine::new(EngineConfig::default());
+        let mut out = Vec::new();
+        let limit = |qty| Command::Limit {
+            owner: 1,
+            side: Side::Buy,
+            price: 100,
+            qty,
+        };
+        e.apply(limit(5), &mut out); // order 1 stays live
+        for id in 2..=1_001 {
+            e.apply(limit(1), &mut out);
+            e.apply(
+                Command::Cancel {
+                    owner: 1,
+                    order_id: id,
+                },
+                &mut out,
+            );
+        }
+        let level = e.bids.level(100).unwrap();
+        assert_eq!((level.live, level.queue.len()), (1, 1_001));
+        e.apply(
+            Command::Cancel {
+                owner: 1,
+                order_id: 1,
+            },
+            &mut out,
+        );
+        assert!(e.bids.level(100).is_none(), "level and tombstones dropped");
+    }
+}

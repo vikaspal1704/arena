@@ -44,7 +44,7 @@ The reference engine has no owners, so this mode is covered by the Rust unit tes
 
 ### 3.1 Orders in a dense `Vec`, not a `HashMap`
 
-Ids are dense, so `orders[id - 1]` is both the index and the archive: O(1) lookup with no hashing, and no `HashMap` iteration order to leak into results. The cost is memory proportional to all orders ever accepted (≈ 48 bytes each), which is fine for a session, and the same trade-off exchanges make with a per-day order store.
+Ids are dense, so `orders[id - 1]` is both the index and the archive: O(1) lookup with no hashing, and no `HashMap` iteration order to leak into results. The cost is memory proportional to all orders ever accepted (40 bytes each), which is fine for a session, and the same trade-off exchanges make with a per-day order store (see [Known limits](#5-known-limits)).
 
 ### 3.2 Lazy cancels
 
@@ -95,6 +95,17 @@ Bot commands go through the sequencer like the player's. Their logic lives outsi
 
 Charges use F&O Wrapped's dated rate table for index futures (2026): brokerage min(₹20, 0.03%) per executed order, STT 0.05% of sells, NSE ₹1.73 per lakh, SEBI ₹10 per crore, stamp duty 0.002% of buys, GST 18% on brokerage + exchange + SEBI. "Against fair value" sums, over every fill, how far the price was from the hidden fair value at that moment, signed so that negative means edge given away: mostly the spread, plus timing.
 
-## 5. Limits
+## 5. Known limits
 
-Single instrument, single process, in-memory. Self-trade prevention is off by default (see §2), no auctions, no circuit breakers. The p99.9 latency (≈5–9 µs from an empty book, 15–38 µs on a book of a million orders, on a shared VM) is the next thing to fix ([BENCHMARKS](BENCHMARKS.md)).
+| Limit | Detail |
+|-------|--------|
+| **Unbounded order archive** | Every accepted order stays in `Engine::orders` for the life of the engine, 40 bytes each, because the dense id is its index. Nothing is evicted. |
+| **Unbounded journal** | Every command stays in the journal (40 bytes) with its fingerprint (8 bytes). With the archive, that is up to 88 bytes per command: about 88 MB per million commands, all in memory. There is no snapshot-and-truncate. |
+| **Cancelled-order tombstones** | A cancel leaves the order's id (8 bytes) in its level's queue (§3.2). Tombstones are removed only when matching reaches them at the front of the queue or when the level's last live order goes. A level that always keeps one live order and never trades collects tombstones without bound, and `queue`, `queue_ahead`, `book_hash` and `check_invariants` walk them. |
+| **Single instrument, single thread** | One book per engine; the engine is not shared across threads. |
+| **No persistence** | State lives in process memory. The browser can download the journal as a JSON file, but nothing is saved automatically and there is no import or restore yet ([ROADMAP](ROADMAP.md)). |
+| **No self-trade prevention by default** | `SelfTradePrevention::Off` is the default, to match the reference engine. `CancelNewest` is the only other policy, and the differential test does not cover it (§2). |
+| **Quantity bounds** | `max_qty` is at most 2^32 (`MAX_ORDER_QTY`, checked by `Engine::new`), and a level counts its orders in a `u32`, so a single price can hold fewer than 2^32 orders. |
+| **Fingerprint is not tamper-evident** | FNV-1a detects accidental divergence only (§3.5). |
+| **Order types** | Limit (rests until filled or cancelled), market (immediate-or-cancel) and cancel only. No amend, no other time-in-force, no auctions, no circuit breakers. |
+| **Latency tail** | p99.9 is about 5–9 µs from an empty book and 15–38 µs on a book of a million orders, on a shared VM ([BENCHMARKS](BENCHMARKS.md)). |

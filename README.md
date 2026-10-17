@@ -111,6 +111,17 @@ web/src/app/       # trading desk, under-the-hood panels, Wrapped
 docs/              # PRD, architecture, test plan, benchmarks, roadmap
 ```
 
+## Known limits
+
+- **Memory grows for the whole session:** the order archive (40 bytes per accepted order), the journal (40 bytes per command) and its fingerprints (8 bytes per command) are never trimmed, so that is up to about 88 MB per million commands.
+- **Cancelled-order tombstones** stay in their level's queue until matching reaches them or the level empties. A level that never trades and always keeps one live order grows without bound.
+- **Single instrument, single thread, no persistence.** Everything is in memory. The browser can download the journal, but it cannot load one back yet.
+- **No self-trade prevention by default.** The default matches the reference engine. `SelfTradePrevention::CancelNewest` is available, but the differential test does not cover it.
+- **The fingerprint detects accidental divergence, not tampering.**
+- At most 2^32 units per order, and fewer than 2^32 orders at one price.
+
+Details: [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md#5-known-limits).
+
 ## What it is not
 
 A simulated market with play money. Bots are simple by design; the fair value is a random walk, not a model of NIFTY. The options bot is a tool with written rules, not a promise of profit. Not investment advice.

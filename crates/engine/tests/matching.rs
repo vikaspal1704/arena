@@ -438,3 +438,11 @@ fn invariants_hold_over_random_streams() {
         }
     }
 }
+
+/// The memory figures in docs/ARCHITECTURE.md ("Known limits").
+#[test]
+fn memory_per_order_and_journal_entry_is_as_documented() {
+    assert_eq!(std::mem::size_of::<Order>(), 40);
+    assert_eq!(std::mem::size_of::<JournalEntry>(), 40);
+    assert_eq!(std::mem::size_of::<OrderId>(), 8, "one queue slot");
+}

@@ -29,6 +29,8 @@ Every test below runs in CI (`.github/workflows/ci.yml`).
 | `arbitrary_commands_never_panic` | Property: every field of every command drawn from its full range (any `u32` owner, `i64` price, `u64` qty and order id, `u64` timestamp); no panic, invariants hold |
 | `extreme_values_are_rejected_or_handled` | `i64::MIN/MAX` prices, `0` and `u64::MAX` quantities and ids, `u32::MAX` owners, in both configurations |
 | `a_max_qty_that_could_overflow_a_level_is_refused` | `Engine::new` refuses `max_qty` above `MAX_ORDER_QTY` (2^32); found by the properties above, where `u64::MAX` orders wrapped a level total |
+| `tombstones_accumulate_until_the_level_empties` | A level with one live order keeps all 1,000 cancelled ids in its queue, and drops them with the level (the documented tombstone limit) |
+| `memory_per_order_and_journal_entry_is_as_documented` | `Order` and `JournalEntry` are 40 bytes each, a queue slot 8 (the documented memory figures) |
 | `every_cancel_targets_a_live_order` | Benchmark workload: 0 rejected cancels over 3 seeds × 50,000 commands |
 | `deep_book_starts_with_a_million_orders_on_50k_levels` | Deep-book scenario's starting book; 0 rejected cancels |
 | `same_seed_same_commands` | Workload is seeded |
