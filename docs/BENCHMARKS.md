@@ -47,7 +47,26 @@ The browser benchmark runs the `standard` mix (`workload::commands`, seed 7) thr
 | Node v22.22.0 | 2,000,000 | 986,325 (same as native) | 2.06–2.49 M commands/s (5 runs) |
 | Chromium 141 (headless, Playwright) | 1,000,000 | 490,828 (same as native for 1M) | 2.21–2.36 M commands/s (3 runs) |
 
-Both were measured with small harnesses that instantiate the module and time `arena_bench_run` after `arena_bench_prepare`; the Chromium one runs on the page's main thread, while the app's **Run 1M commands** button calls the same two exports from a Web Worker.
+Reproduce with `web/scripts/bench-wasm.mjs` (after `npm run wasm` in `web/`):
+
+```bash
+node scripts/bench-wasm.mjs node 2000000 5
+node scripts/bench-wasm.mjs chromium 1000000 3   # PW_CHROMIUM_PATH=... to pick a browser
+```
+
+It instantiates the module and times `arena_bench_run` after `arena_bench_prepare`. In Chromium it runs on the page's main thread; the app's **Run 1M commands** button calls the same two exports from a Web Worker.
+
+## On a different host
+
+Absolute timings depend on the host; counts, rejected cancels and fingerprints do not. After the container moved to another shared VM (Intel Xeon @ 2.80 GHz, 4 vCPU, same toolchain, same commit), the same commands measured lower:
+
+| | Throughput |
+|---|---|
+| Native, `standard` (2 runs) | 1.80–2.27 M commands/s, p50 398–423 ns |
+| Node v22.22.0, `bench-wasm.mjs node 2000000` (8 runs) | 1.71–1.92 M commands/s |
+| Chromium 141, `bench-wasm.mjs chromium 1000000` (8 runs) | 1.48–2.05 M commands/s |
+
+Trade counts were identical (986,325 and 490,828). Compare runs taken on the same host, not against the tables above.
 
 ## What preallocation buys
 

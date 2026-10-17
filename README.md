@@ -8,7 +8,7 @@ Trade index futures against a market of bots. Watch your order wait in the queue
 |---|---|
 | **Live** | https://vikaspal1704.github.io/arena/ |
 | **Engine** | Rust, no dependencies, compiled to an 81 KB WebAssembly module with no JavaScript glue |
-| **Speed** | 2.4–3.7 M commands/s, p50 ≈ 220–320 ns, p99 ≈ 0.9–1.3 µs (native, one core, empty starting book, shared VM); 1.4–1.9 M commands/s on a book of 1 million orders; 2.1–2.5 M commands/s as WebAssembly in Node and Chromium. Cancels hit live orders (0% rejected, checked by the benchmark). Machine, method and full numbers: [benchmarks](docs/BENCHMARKS.md) |
+| **Speed** | 2.4–3.7 M commands/s, p50 ≈ 220–320 ns, p99 ≈ 0.9–1.3 µs (native, one core, empty starting book, shared VM); 1.4–1.9 M commands/s on a book of 1 million orders; 2.1–2.5 M commands/s as WebAssembly in Node and Chromium. Cancels hit live orders (0% rejected, checked by the benchmark). Timings vary by host (another VM of the same class measured 20–35% lower); machine, method and full numbers: [benchmarks](docs/BENCHMARKS.md) |
 | **Correctness** | Differential-tested against an independent Python engine on 1.5 million random commands in CI |
 | **Stack** | Rust · WebAssembly · TypeScript · React · Web Workers · Vite · Vitest · Playwright |
 | **License** | [MIT](LICENSE) |
