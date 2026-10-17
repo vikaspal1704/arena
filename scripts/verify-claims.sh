@@ -60,8 +60,14 @@ if rustup target list --installed 2>/dev/null | grep -q wasm32-unknown-unknown &
   cargo build -q --release -p arena-wasm --target wasm32-unknown-unknown
   wasm=target/wasm32-unknown-unknown/release/arena_wasm.wasm
   bytes=$(wc -c <"$wasm")
-  kib=$(((bytes + 512) / 1024))
-  [ "$kib" -eq 81 ] && ok "module is 81 KB ($bytes bytes)" || no "module is 81 KB" "it is $bytes bytes ($kib KB): update README and docs"
+  # The exact size depends on the Rust version (83,342 bytes with rustc
+  # 1.97.0, 84,332 with a newer stable), so the claim is a bound.
+  rustc_v=$(rustc --version | cut -d' ' -f2)
+  if [ "$bytes" -lt $((90 * 1024)) ]; then
+    ok "module is under 90 KB ($bytes bytes, rustc $rustc_v)"
+  else
+    no "module is under 90 KB" "it is $bytes bytes with rustc $rustc_v: update README and docs"
+  fi
   imports=$(node -e "console.log(JSON.stringify(WebAssembly.Module.imports(new WebAssembly.Module(require('fs').readFileSync('$wasm')))))")
   [ "$imports" = "[]" ] && ok "module has zero imports (no JavaScript glue)" || no "module has zero imports" "$imports"
 else
