@@ -8,3 +8,7 @@ authors.workspace = true
 repository.workspace = true
 
 [dependencies]
+
+# Test-only: the engine itself has no dependencies.
+[dev-dependencies]
+proptest = { version = "1.12", default-features = false, features = ["std"] }

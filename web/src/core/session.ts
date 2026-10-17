@@ -6,7 +6,7 @@
 import { chargesFor, type Charges } from './charges';
 import { PLAYER, type ArenaEvent, type Side } from './types';
 
-export type MyOrderStatus = 'OPEN' | 'PARTIAL' | 'FILLED' | 'CANCELLED' | 'EXPIRED';
+export type MyOrderStatus = 'OPEN' | 'PARTIAL' | 'FILLED' | 'CANCELLED' | 'EXPIRED' | 'SELF_TRADE';
 
 export interface MyOrder {
   orderId: number;

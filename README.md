@@ -7,9 +7,9 @@ Trade index futures against a market of bots. Watch your order wait in the queue
 | | |
 |---|---|
 | **Live** | https://vikaspal1704.github.io/arena/ |
-| **Engine** | Rust, no dependencies, compiled to a 79 KB WebAssembly module with no JavaScript glue |
-| **Speed** | ~2 million orders/s, p50 ≈ 350 ns per order (native, one core); about the same in the browser ([benchmarks](docs/BENCHMARKS.md)) |
-| **Correctness** | Differential-tested against an independent Python engine on 1.5 million random commands in CI |
+| **Engine** | Rust, no dependencies, compiled to an 81 KB WebAssembly module with no JavaScript glue |
+| **Speed** | 2.4–3.7 M commands/s, p50 ≈ 220–320 ns, p99 ≈ 0.9–1.3 µs (native, one core, empty starting book, shared VM); 1.4–1.9 M commands/s on a book of 1 million orders; 2.1–2.5 M commands/s as WebAssembly in Node and Chromium. Cancels hit live orders (0% rejected, checked by the benchmark). Timings vary by host (another VM of the same class measured 20–35% lower); machine, method and full numbers: [benchmarks](docs/BENCHMARKS.md) |
+| **Correctness** | Differential-tested against a separately written Python engine on 1.5 million random commands in CI (the reference is the author's earlier project, so it checks the implementation, not the reading of the rules); property tests and invariant checks on top |
 | **Stack** | Rust · WebAssembly · TypeScript · React · Web Workers · Vite · Vitest · Playwright |
 | **License** | [MIT](LICENSE) |
 
@@ -25,7 +25,7 @@ Built by **Vikas Pal** (Software Engineer, Fintech). Arena brings together three
 4. Under the hood, drag **Chaos** to 30%: packets are dropped, the client detects the gaps and heals from snapshots.
 5. Press **Pause and time-travel** and drag the slider. The exchange is rebuilt from its journal at that point, and the fingerprint is checked against the one recorded live.
 6. Press **Run 1M commands** to benchmark the engine in your own browser.
-7. **End session** for your session, Wrapped: net P&L after charges, win rate, how your fills compared with the hidden fair value, and a verified audit trail.
+7. **End session** for your session, Wrapped: net P&L after charges, win rate, how your fills compared with the hidden fair value, and a replay of the whole session checked against the fingerprints recorded live.
 
 `?seed=123` replays the same market: the bots make exactly the same moves until you trade differently.
 
@@ -52,12 +52,12 @@ flowchart LR
 ```
 
 - **Matching engine** (`crates/engine`): price-time priority, limit / market (IOC) / cancel, integer prices, lazy cancels (a cancelled order becomes a tombstone that matching skips, so a cancel costs O(log n), not a queue scan). No floats, clocks or hash-map iteration anywhere, so results are byte-for-byte reproducible.
-- **Sequencer and journal** (`exchange.rs`): every command gets a sequence number and is journalled before it is applied. State is a pure function of the journal, and a chained fingerprint after each command lets anyone verify a replay at every step.
+- **Sequencer and journal** (`exchange.rs`): every command gets a sequence number and is journalled before it is applied. State is a pure function of the journal, and a chained fingerprint after each command lets anyone verify a replay at every step. The chain uses FNV-1a, so it detects **accidental divergence** (a bug, a platform difference, a lost or changed command), **not tampering**: anyone who can edit a journal can recompute a matching chain.
 - **Bots** (`sim.rs`): a market maker that skews its quotes against inventory, noise traders, and a momentum trader, all around a hidden fair value that drifts and occasionally jumps. They go through the sequencer like anyone else, so replaying needs no bot logic.
 - **WebAssembly** (`crates/wasm`): plain exported functions; results are written to a buffer in module memory that TypeScript reads directly. Native and WebAssembly builds produce the same fingerprint (checked in CI).
 - **Two channels**, like a real venue: market data is a numbered, lossy stream of deltas with gap detection and snapshot recovery; the player's own order events use a reliable private channel.
 - **Session Wrapped** (`web/src/core/session.ts`): FIFO round trips, charges from F&O Wrapped's dated rate table, edge against fair value, personal "try this next" advice, and a comparison with your previous session.
-- **A screen you can read while it moves**: the ladder has fixed slots so rows never jump, changed quantities flash briefly instead of moving, and boxes have fixed sizes. Cumulative layout shift during live trading fell from 0.25 to 0.009, and a browser test keeps it under 0.05.
+- **A screen you can read while it moves**: the ladder has fixed slots so rows never jump, changed quantities flash briefly instead of moving, and boxes have fixed sizes. Over 6 s of live trading, cumulative layout shift measures 0.012–0.015 (three runs of `e2e_layout_stays_still_while_the_market_moves`, which prints it), and the test fails above 0.05.
 
 Design decisions and trade-offs: [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md). Visual design rules: [`docs/DESIGN.md`](docs/DESIGN.md).
 
@@ -67,14 +67,16 @@ Design decisions and trade-offs: [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md).
 
 | Claim | How it is checked |
 |-------|-------------------|
-| The matching rules are right | `difftest/`: seeded random streams (limits, markets, cancels, invalid input) run through this engine and [mini-matching-engine](https://github.com/vikaspal1704/mini-matching-engine); order ids, every trade, every rejection, remaining quantities and the whole book must match after **every** command. 300 seeds × 5,000 commands (1.5 million commands, 962,740 trades) in CI. A deliberately broken engine is caught at command 20. |
-| The book never goes wrong | `check_invariants` after every command in 200,000 random commands: never crossed, no empty levels, level totals equal live orders, FIFO order kept. |
-| Replays are exact | Every prefix of a 3,000-step session replays to the recorded fingerprint; changing one command changes every later fingerprint. The browser checks this on demand. |
+| The matching rules are right | `difftest/`: seeded random streams from three owners (limits, markets, cancels, cancels by the wrong owner, invalid input) run through this engine (default configuration) and [mini-matching-engine](https://github.com/vikaspal1704/mini-matching-engine); order ids, every trade with its owners, every rejection, remaining quantities and the whole book must match after **every** command. 300 seeds × 5,000 commands (1.5 million commands, 963,654 trades) in CI. Removing the engine's owner check is caught at command 743, and turning self-trade prevention on by default at command 2. |
+| The book never goes wrong | `check_invariants` after every command in 400,000 random commands (with and without self-trade prevention): never crossed, no empty levels, level totals equal live orders, FIFO order kept. Property tests (`crates/engine/tests/properties.rs`, proptest) check the same from the public API on arbitrary configurations and command streams, plus conservation of traded quantity, exact replay of the journal, and no panic on any value of any field, including `u64`/`i64` extremes. |
+| Replays are exact | Every prefix of a 3,000-step session replays to the recorded fingerprint; changing one command changes every later fingerprint. The browser checks this on demand. This is a consistency check against accidental divergence, not tamper evidence ([why](docs/ARCHITECTURE.md#35-the-fingerprint-chain)). |
 | It is deterministic everywhere | Same seed → same fingerprint natively, in WebAssembly (Node), and in two separate browser pages (Playwright). |
 | The feed heals | Under 20% packet loss, the client book rebuilt from deltas and snapshots ends identical to the engine's book. |
-| Nothing leaves the browser | Playwright asserts zero third-party requests; the page's CSP allows only its own origin. |
+| Nothing leaves the browser | Playwright asserts zero third-party requests. The page's CSP (`web/index.html`) allows scripts, styles, workers and connections from its own origin only, plus WebSocket connections to `localhost` / `127.0.0.1` for the optional local Kite bridge; images may also be `data:` URLs and styles may be inline. |
 
 Full list: [`docs/TEST_PLAN.md`](docs/TEST_PLAN.md).
+
+**Check it yourself:** `scripts/verify-claims.sh` runs every engine claim above and prints PASS / FAIL for each (`--mutations` also breaks the engine on purpose to show the tests notice). Reading order, claim-to-code map and known weak spots: [`docs/REVIEWING.md`](docs/REVIEWING.md).
 
 ---
 
@@ -83,7 +85,7 @@ Full list: [`docs/TEST_PLAN.md`](docs/TEST_PLAN.md).
 ```bash
 # Engine: tests, benchmark, differential test
 cargo test --release
-cargo run --release -p arena-bench -- 2000000
+cargo run --release -p arena-bench -- 2000000   # standard and deep-book scenarios
 pip install git+https://github.com/vikaspal1704/mini-matching-engine
 cargo build --release -p arena-difftest && python difftest/compare.py --seeds 1-20 --count 5000
 
@@ -108,8 +110,20 @@ difftest/          # compares them with the Python reference engine
 web/src/core/      # pure TypeScript: wasm wrapper, feed protocol, account, charges
 web/src/worker/    # the exchange process and the benchmark worker
 web/src/app/       # trading desk, under-the-hood panels, Wrapped
-docs/              # PRD, architecture, test plan, benchmarks, roadmap
+docs/              # PRD, architecture, test plan, benchmarks, roadmap, reviewer's guide
+scripts/           # verify-claims.sh: checks every engine claim
 ```
+
+## Known limits
+
+- **Memory grows for the whole session:** the order archive (40 bytes per accepted order), the journal (40 bytes per command) and its fingerprints (8 bytes per command) are never trimmed, so that is up to about 88 MB per million commands.
+- **Cancelled-order tombstones** stay in their level's queue until matching reaches them or the level empties. A level that never trades and always keeps one live order grows without bound.
+- **Single instrument, single thread, no persistence.** Everything is in memory. The browser can download the journal, but it cannot load one back yet.
+- **No self-trade prevention by default.** The default matches the reference engine. `SelfTradePrevention::CancelNewest` is available, but the differential test does not cover it.
+- **The fingerprint detects accidental divergence, not tampering.**
+- At most 2^32 units per order, and fewer than 2^32 orders at one price.
+
+Details: [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md#5-known-limits).
 
 ## What it is not
 

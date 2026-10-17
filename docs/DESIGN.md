@@ -12,7 +12,7 @@ Arena should look like a trading terminal someone chose to build, not a template
 | Icons | Phosphor only. No text glyphs (◆ ✓ ▲ ● ❚❚) standing in for icons. |
 | Copy | Plain sentences, no em or en dashes, at most one middle dot per line, no cute headlines. Numbers are real, from the engine. |
 | Motion | Only when something changed: a quantity tint, a note arriving, a depth bar easing. All of it is off under `prefers-reduced-motion`. |
-| Stability | Fixed ladder slots and fixed-size boxes: nothing moves while the market moves (cumulative layout shift 0.009; a Playwright test keeps it under 0.05). |
+| Stability | Fixed ladder slots and fixed-size boxes: nothing moves while the market moves (cumulative layout shift 0.012–0.015 over 6 s of live trading; a Playwright test prints it and fails above 0.05). |
 | Themes | Dark and light, from the device setting; axe-core passes in both. |
 
 ## What the audit changed

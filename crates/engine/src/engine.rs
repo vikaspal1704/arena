@@ -6,12 +6,24 @@ use crate::types::{
     RejectReason, Side,
 };
 
+/// Largest `max_qty` an engine accepts: 2^32.
+///
+/// A level's total quantity is a `u64` and its order count a `u32`. With
+/// orders of at most 2^32 units, the total can only overflow once a single
+/// price holds 2^32 orders, which the order count cannot represent either
+/// (and which would need over 200 GB of order archive). Above this bound a
+/// handful of large orders could wrap the total, so `Engine::new` refuses it.
+pub const MAX_ORDER_QTY: Qty = 1 << 32;
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct EngineConfig {
     /// Prices must be a multiple of this (1 = any integer price).
     pub tick: Price,
-    /// Largest quantity a single order may have.
+    /// Largest quantity a single order may have (at most `MAX_ORDER_QTY`).
     pub max_qty: Qty,
+    /// What happens when an incoming order would trade with a resting order
+    /// of the same owner. Off by default, which is the reference behaviour.
+    pub self_trade: SelfTradePrevention,
 }
 
 impl Default for EngineConfig {
@@ -19,8 +31,26 @@ impl Default for EngineConfig {
         EngineConfig {
             tick: 1,
             max_qty: 1_000_000_000,
+            self_trade: SelfTradePrevention::Off,
         }
     }
+}
+
+/// Self-trade prevention policy. Owners are identified by `Owner`.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum SelfTradePrevention {
+    /// Orders of the same owner trade with each other like any others
+    /// (the reference engine's behaviour).
+    #[default]
+    Off,
+    /// Cancel newest: when the next resting order an incoming order would
+    /// trade with (best price, then time priority, skipping cancelled
+    /// orders) has the same owner, the incoming order stops matching and
+    /// its remaining quantity is cancelled with `DoneReason::SelfTrade`.
+    /// The resting order is left untouched, trades already made with other
+    /// owners stand, and the incoming order never rests. A market order's
+    /// remainder is reported as `SelfTrade`, not `Expired`.
+    CancelNewest,
 }
 
 #[derive(Debug, Clone)]
@@ -39,6 +69,10 @@ pub struct Engine {
 impl Engine {
     pub fn new(config: EngineConfig) -> Self {
         assert!(config.tick >= 1, "tick must be >= 1");
+        assert!(
+            config.max_qty <= MAX_ORDER_QTY,
+            "max_qty must be <= MAX_ORDER_QTY (2^32)"
+        );
         Engine {
             config,
             bids: BookSide::new(Side::Buy),
@@ -91,7 +125,7 @@ impl Engine {
                 let id = self.accept(owner, side, price, qty, false, out);
                 self.match_order(id, out);
                 let order = &self.orders[(id - 1) as usize];
-                if order.remaining_qty > 0 {
+                if order.status.is_live() {
                     let (side, price, rem) = (order.side, order.price, order.remaining_qty);
                     self.side_mut(side).push(price, id, rem);
                     self.touch(side, price);
@@ -111,7 +145,7 @@ impl Engine {
                 let id = self.accept(owner, side, price, qty, true, out);
                 self.match_order(id, out);
                 let order = &mut self.orders[(id - 1) as usize];
-                if order.remaining_qty > 0 {
+                if order.status.is_live() {
                     order.status = OrderStatus::Cancelled;
                     out.push(Event::Done {
                         order_id: id,
@@ -171,16 +205,17 @@ impl Engine {
 
     fn match_order(&mut self, taker_id: OrderId, out: &mut Vec<Event>) {
         let Engine {
+            config,
             bids,
             asks,
             orders,
             next_trade_id,
             touched,
-            ..
         } = self;
-        let (taker_side, limit) = {
+        let mut self_trade = false;
+        let (taker_side, limit, taker_owner) = {
             let t = &orders[(taker_id - 1) as usize];
-            (t.side, t.price)
+            (t.side, t.price, t.owner)
         };
         let book = match taker_side {
             Side::Buy => asks,
@@ -206,6 +241,11 @@ impl Engine {
                 level.queue.pop_front(); // tombstone of a cancelled order
                 continue;
             }
+            if config.self_trade == SelfTradePrevention::CancelNewest && maker.owner == taker_owner
+            {
+                self_trade = true;
+                break;
+            }
             let qty = taker_rem.min(maker.remaining_qty);
             maker.remaining_qty -= qty;
             level.qty -= qty;
@@ -225,7 +265,6 @@ impl Engine {
             } else {
                 OrderStatus::Partial
             };
-            let taker_owner = taker.owner;
 
             out.push(Event::Trade {
                 trade_id: *next_trade_id,
@@ -251,8 +290,16 @@ impl Engine {
             }
             book.prune(best);
         }
-        let taker = &orders[(taker_id - 1) as usize];
-        if taker.status == OrderStatus::Filled {
+        let taker = &mut orders[(taker_id - 1) as usize];
+        if self_trade {
+            taker.status = OrderStatus::Cancelled;
+            out.push(Event::Done {
+                order_id: taker_id,
+                owner: taker.owner,
+                reason: DoneReason::SelfTrade,
+                remaining_qty: taker.remaining_qty,
+            });
+        } else if taker.status == OrderStatus::Filled {
             out.push(Event::Done {
                 order_id: taker_id,
                 owner: taker.owner,
@@ -342,6 +389,20 @@ impl Engine {
 
     pub fn best_ask(&self) -> Option<Price> {
         self.asks.best_price()
+    }
+
+    /// Number of price levels: (bids, asks).
+    pub fn level_counts(&self) -> (usize, usize) {
+        (self.bids.level_count(), self.asks.level_count())
+    }
+
+    /// Number of live orders resting in the book (O(levels)).
+    pub fn resting_orders(&self) -> u64 {
+        [&self.bids, &self.asks]
+            .iter()
+            .flat_map(|side| side.iter())
+            .map(|(_, level)| level.live as u64)
+            .sum()
     }
 
     /// Aggregated book, best levels first.
@@ -445,5 +506,46 @@ impl Engine {
             }
         }
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The tombstone limit in docs/ARCHITECTURE.md ("Known limits"): a level
+    /// that keeps one live order and never trades keeps every cancelled id,
+    /// and drops them all when its last live order goes.
+    #[test]
+    fn tombstones_accumulate_until_the_level_empties() {
+        let mut e = Engine::new(EngineConfig::default());
+        let mut out = Vec::new();
+        let limit = |qty| Command::Limit {
+            owner: 1,
+            side: Side::Buy,
+            price: 100,
+            qty,
+        };
+        e.apply(limit(5), &mut out); // order 1 stays live
+        for id in 2..=1_001 {
+            e.apply(limit(1), &mut out);
+            e.apply(
+                Command::Cancel {
+                    owner: 1,
+                    order_id: id,
+                },
+                &mut out,
+            );
+        }
+        let level = e.bids.level(100).unwrap();
+        assert_eq!((level.live, level.queue.len()), (1, 1_001));
+        e.apply(
+            Command::Cancel {
+                owner: 1,
+                order_id: 1,
+            },
+            &mut out,
+        );
+        assert!(e.bids.level(100).is_none(), "level and tombstones dropped");
     }
 }

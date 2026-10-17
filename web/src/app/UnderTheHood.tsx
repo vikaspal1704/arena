@@ -204,7 +204,7 @@ function BenchPanel() {
         <h3 id="bench-h">Benchmark</h3>
       </div>
       <p className="small muted">
-        Send 1,000,000 orders and cancels through a fresh exchange in this browser. Native Rust on one 2.1 GHz server core does about 2 million a second.
+        Send 1,000,000 orders and cancels through a fresh exchange in this browser. Native Rust on one 2.1 GHz server core does 2.4 to 3.7 million a second on the same mix.
       </p>
       <button type="button" onClick={run} disabled={running}>
         {running ? 'Running' : 'Run 1M commands'}

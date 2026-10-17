@@ -16,10 +16,27 @@ Every test below runs in CI (`.github/workflows/ci.yml`).
 | `rejects_change_nothing` | Bad price, off-tick, zero / oversized qty, unknown order: `Rejected`, no id used |
 | `only_the_owner_can_cancel_and_only_once` | `NotOwner`, `NotCancellable` |
 | `queue_shows_live_orders_front_first` | Queue view and `queue_ahead` ignore cancelled orders |
-| `invariants_hold_over_random_streams` | 20 seeds × 10,000 random commands; `check_invariants` after each |
+| `without_stp_an_owner_trades_with_itself` | Default config: same-owner orders trade (reference behaviour) |
+| `stp_cancels_the_incoming_order_and_keeps_the_resting_one` | Cancel-newest: no trade, incoming `Done(SelfTrade)`, resting order and book untouched |
+| `stp_keeps_trades_made_before_reaching_the_own_order` | Trades with other owners first stand; orders behind the own order are not reached |
+| `stp_skips_the_owners_cancelled_orders` | A cancelled own order (tombstone) does not trigger prevention |
+| `stp_reports_a_market_orders_remainder_as_self_trade` | Market remainder is `SelfTrade`, not `Expired` |
+| `stp_lets_different_owners_trade` | Prevention only applies to the same owner |
+| `invariants_hold_over_random_streams` | 20 seeds × 10,000 random commands from 4 owners, with and without self-trade prevention; `check_invariants` after each; with prevention, no trade has the same owner on both sides |
+| `book_is_never_crossed_and_levels_equal_their_live_orders` | Property (proptest, 512 cases × up to 300 commands, random tick / max qty / self-trade mode): after every command best bid < best ask, each level's qty and order count equal the sum over its live queued orders (summed in `u128`), and every `Level` event equals the level as it now is |
+| `traded_quantity_is_conserved` | Property: buy fills = sell fills = traded qty; each order's original qty = remaining + traded; trades print at the maker's price, within the taker's limit |
+| `replaying_the_journal_reproduces_every_fingerprint` | Property: a fresh exchange fed the journal reproduces each command's events, the fingerprint after every entry, and the book hash |
+| `arbitrary_commands_never_panic` | Property: every field of every command drawn from its full range (any `u32` owner, `i64` price, `u64` qty and order id, `u64` timestamp); no panic, invariants hold |
+| `extreme_values_are_rejected_or_handled` | `i64::MIN/MAX` prices, `0` and `u64::MAX` quantities and ids, `u32::MAX` owners, in both configurations |
+| `a_max_qty_that_could_overflow_a_level_is_refused` | `Engine::new` refuses `max_qty` above `MAX_ORDER_QTY` (2^32); found by the properties above, where `u64::MAX` orders wrapped a level total |
+| `tombstones_accumulate_until_the_level_empties` | A level with one live order keeps all 1,000 cancelled ids in its queue, and drops them with the level (the documented tombstone limit) |
+| `memory_per_order_and_journal_entry_is_as_documented` | `Order` and `JournalEntry` are 40 bytes each, a queue slot 8 (the documented memory figures) |
+| `every_cancel_targets_a_live_order` | Benchmark workload: 0 rejected cancels over 3 seeds × 50,000 commands |
+| `deep_book_starts_with_a_million_orders_on_50k_levels` | Deep-book scenario's starting book; 0 rejected cancels |
+| `same_seed_same_commands` | Workload is seeded |
 | `replaying_any_prefix_gives_the_same_fingerprint_and_book` | Prefixes 0, 1, 17, 500, all |
 | `same_seed_same_market_different_seed_different_market` | Determinism of the simulation |
-| `a_changed_command_changes_every_later_fingerprint` | Fingerprint chain detects an edited journal |
+| `a_changed_command_changes_every_later_fingerprint` | Replaying a journal with one changed command diverges from the recorded chain at that entry and after it (accidental divergence; FNV-1a is not tamper-proof) |
 | `the_simulated_market_stays_healthy` | 20,000 steps: trades happen, both sides quoted, tight spread, book tracks fair value |
 | `player_orders_trade_with_bots` | A market buy fills against the bots |
 | `anchored_market_follows_the_external_price_and_still_replays` | Book tracks an external price path; the journal alone replays it |
@@ -28,7 +45,7 @@ Every test below runs in CI (`.github/workflows/ci.yml`).
 
 ## Differential test (`difftest/compare.py`)
 
-300 seeds × 5,000 commands against [mini-matching-engine](https://github.com/vikaspal1704/mini-matching-engine). Per command it compares order id, remaining quantity, rejection reason, every trade (price, qty, maker id, taker id) and the full aggregated book. The stream includes market orders, cancels of live, filled, cancelled and unknown orders, and invalid prices and quantities.
+300 seeds × 5,000 commands against [mini-matching-engine](https://github.com/vikaspal1704/mini-matching-engine), with the Rust engine in its default configuration (no self-trade prevention). Per command it compares order id, remaining quantity, rejection reason, every trade (price, qty, maker id, taker id, maker owner, taker owner) and the full aggregated book. The stream comes from three owners and includes market orders, same-owner trades, cancels of live, filled, cancelled and unknown orders, cancels by someone other than the owner, and invalid prices and quantities. The reference engine has no owners, so `compare.py` records each order's owner and applies the only-the-owner-may-cancel rule itself.
 
 ## Web core (`npm test`, Vitest, against the real WebAssembly build)
 
@@ -103,4 +120,4 @@ Every test below runs in CI (`.github/workflows/ci.yml`).
 | `e2e_real_mode_trades_around_bridge_prices` | Against the mock bridge: NSE book shown, lot from the contract, fill near the real price, Wrapped explains the seed caveat |
 | `e2e_real_mode_without_credentials_shows_setup_steps` | Setup screen with the exact redirect URL |
 | `e2e_public_site_is_unchanged_without_real_flag` | No real-market UI on the public site |
-| `e2e_layout_stays_still_while_the_market_moves` | 6 s of live market at normal speed: no watched panel moves, cumulative layout shift < 0.05 |
+| `e2e_layout_stays_still_while_the_market_moves` | 6 s of live market at normal speed: no watched panel moves, cumulative layout shift < 0.05 (prints the measured value) |

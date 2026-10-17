@@ -27,7 +27,7 @@ jobs:
           native=$(cargo run -q --release -p arena-engine --example fingerprint -- 42 2000)
           echo "native: $native"
           test "$native" = "seq 4181 fingerprint 8d44c209bd24be3e"
-      - name: Benchmark (informational)
+      - name: Benchmark (fails if 2% or more of its cancels are rejected)
         run: cargo run -q --release -p arena-bench -- 2000000 | tee -a "$GITHUB_STEP_SUMMARY"
 
   difftest:

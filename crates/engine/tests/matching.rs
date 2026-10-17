@@ -165,6 +165,7 @@ fn rejects_change_nothing() {
     let mut e = Engine::new(EngineConfig {
         tick: 5,
         max_qty: 1000,
+        ..EngineConfig::default()
     });
     for (cmd, reason) in [
         (limit(1, Side::Buy, 0, 5), RejectReason::BadPrice),
@@ -242,13 +243,162 @@ fn queue_shows_live_orders_front_first() {
     assert_eq!(e.queue_ahead(1), None, "cancelled");
 }
 
-/// Seeded random commands; invariants hold after every one, and quantity is
-/// conserved across every trade.
+fn stp_engine() -> Engine {
+    Engine::new(EngineConfig {
+        self_trade: SelfTradePrevention::CancelNewest,
+        ..EngineConfig::default()
+    })
+}
+
+#[test]
+fn without_stp_an_owner_trades_with_itself() {
+    let mut e = engine();
+    run(&mut e, limit(1, Side::Sell, 100, 5));
+    let ev = run(&mut e, limit(1, Side::Buy, 100, 5));
+    assert!(ev.contains(&Event::Trade {
+        trade_id: 1,
+        price: 100,
+        qty: 5,
+        maker_order_id: 1,
+        taker_order_id: 2,
+        maker_owner: 1,
+        taker_owner: 1,
+        aggressor: Side::Buy,
+    }));
+}
+
+#[test]
+fn stp_cancels_the_incoming_order_and_keeps_the_resting_one() {
+    let mut e = stp_engine();
+    run(&mut e, limit(1, Side::Sell, 100, 5));
+    let ev = run(&mut e, limit(1, Side::Buy, 101, 8));
+    assert_eq!(
+        ev,
+        vec![
+            Event::Accepted {
+                order_id: 2,
+                owner: 1,
+                side: Side::Buy,
+                price: 101,
+                qty: 8,
+                market: false
+            },
+            Event::Done {
+                order_id: 2,
+                owner: 1,
+                reason: DoneReason::SelfTrade,
+                remaining_qty: 8
+            },
+        ],
+        "no trade, no level change"
+    );
+    assert_eq!(e.order(1).unwrap().status, OrderStatus::Open);
+    assert_eq!(e.order(2).unwrap().status, OrderStatus::Cancelled);
+    assert_eq!(e.best_bid(), None, "the incoming order never rests");
+    assert_eq!(
+        e.depth(5).1,
+        vec![BookLevel {
+            price: 100,
+            qty: 5,
+            orders: 1
+        }]
+    );
+}
+
+#[test]
+fn stp_keeps_trades_made_before_reaching_the_own_order() {
+    let mut e = stp_engine();
+    run(&mut e, limit(2, Side::Sell, 100, 3)); // 1: someone else, best
+    run(&mut e, limit(1, Side::Sell, 100, 4)); // 2: own, same level, behind
+    run(&mut e, limit(3, Side::Sell, 100, 4)); // 3: behind the own order
+    let ev = run(&mut e, limit(1, Side::Buy, 100, 10)); // 4
+    assert_eq!(trades(&ev), vec![(100, 3, 1, 4)]);
+    assert!(ev.contains(&Event::Done {
+        order_id: 4,
+        owner: 1,
+        reason: DoneReason::SelfTrade,
+        remaining_qty: 7
+    }));
+    assert!(ev.contains(&Event::Level {
+        side: Side::Sell,
+        price: 100,
+        qty: 8,
+        orders: 2
+    }));
+    assert_eq!(e.best_bid(), None);
+    let q: Vec<_> = e.queue(Side::Sell, 100).iter().map(|o| o.id).collect();
+    assert_eq!(q, vec![2, 3], "order 3 is not reached past the own order");
+}
+
+#[test]
+fn stp_skips_the_owners_cancelled_orders() {
+    let mut e = stp_engine();
+    run(&mut e, limit(1, Side::Sell, 100, 5)); // 1: own, then cancelled
+    run(&mut e, limit(2, Side::Sell, 100, 5)); // 2
+    run(
+        &mut e,
+        Command::Cancel {
+            owner: 1,
+            order_id: 1,
+        },
+    );
+    let ev = run(&mut e, limit(1, Side::Buy, 100, 5));
+    assert_eq!(trades(&ev), vec![(100, 5, 2, 3)]);
+    assert_eq!(e.order(3).unwrap().status, OrderStatus::Filled);
+}
+
+#[test]
+fn stp_reports_a_market_orders_remainder_as_self_trade() {
+    let mut e = stp_engine();
+    run(&mut e, limit(2, Side::Sell, 100, 3)); // 1
+    run(&mut e, limit(1, Side::Sell, 101, 3)); // 2: own
+    let ev = run(
+        &mut e,
+        Command::Market {
+            owner: 1,
+            side: Side::Buy,
+            qty: 10,
+        },
+    );
+    assert_eq!(trades(&ev), vec![(100, 3, 1, 3)]);
+    assert!(ev.contains(&Event::Done {
+        order_id: 3,
+        owner: 1,
+        reason: DoneReason::SelfTrade,
+        remaining_qty: 7
+    }));
+    assert!(!ev.iter().any(|e| matches!(
+        e,
+        Event::Done {
+            reason: DoneReason::Expired,
+            ..
+        }
+    )));
+}
+
+#[test]
+fn stp_lets_different_owners_trade() {
+    let mut e = stp_engine();
+    run(&mut e, limit(1, Side::Sell, 100, 5));
+    let ev = run(&mut e, limit(2, Side::Buy, 100, 5));
+    assert_eq!(trades(&ev), vec![(100, 5, 1, 2)]);
+}
+
+/// Seeded random commands; invariants hold after every one, with and
+/// without self-trade prevention, and with it no owner trades with itself.
 #[test]
 fn invariants_hold_over_random_streams() {
-    for seed in 1..=20 {
+    for (seed, self_trade) in (1..=20).flat_map(|s| {
+        [
+            (s, SelfTradePrevention::Off),
+            (s, SelfTradePrevention::CancelNewest),
+        ]
+    }) {
         let mut rng = sim::Rng::new(seed);
-        let mut e = Engine::new(EngineConfig::default());
+        let mut e = Engine::new(EngineConfig {
+            self_trade,
+            ..EngineConfig::default()
+        });
         let mut out = Vec::new();
         for _ in 0..10_000 {
             let owner = rng.below(4) as Owner;
@@ -277,8 +427,22 @@ fn invariants_hold_over_random_streams() {
             out.clear();
             e.apply(cmd, &mut out);
             if let Err(msg) = e.check_invariants() {
-                panic!("seed {seed}: {msg}");
+                panic!("seed {seed} {self_trade:?}: {msg}");
+            }
+            if self_trade == SelfTradePrevention::CancelNewest {
+                assert!(!out.iter().any(|ev| matches!(
+                    ev,
+                    Event::Trade { maker_owner, taker_owner, .. } if maker_owner == taker_owner
+                )));
             }
         }
     }
+}
+
+/// The memory figures in docs/ARCHITECTURE.md ("Known limits").
+#[test]
+fn memory_per_order_and_journal_entry_is_as_documented() {
+    assert_eq!(std::mem::size_of::<Order>(), 40);
+    assert_eq!(std::mem::size_of::<JournalEntry>(), 40);
+    assert_eq!(std::mem::size_of::<OrderId>(), 8, "one queue slot");
 }

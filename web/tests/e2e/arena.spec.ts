@@ -157,6 +157,8 @@ test('e2e_layout_stays_still_while_the_market_moves', async ({ page }) => {
         }, 6000);
       }),
   );
+  // Printed so the number quoted in the README can be reproduced.
+  console.log(`cumulative layout shift over 6 s: ${result.cls.toFixed(4)}`);
   expect(result.moved).toEqual([]);
   expect(result.cls).toBeLessThan(0.05);
 });

@@ -27,13 +27,24 @@ Identical to [mini-matching-engine](https://github.com/vikaspal1704/mini-matchin
 - Whatever remains of a limit order rests; whatever remains of a market order expires (IOC).
 - After every command the book is not crossed: best bid < best ask.
 
-Arena adds market orders, a tick grid, a per-order quantity cap, owners (only the owner may cancel) and L2 `Level` events. A market order is defined as a limit at the worst possible price whose remainder is cancelled, which is also how the differential test expresses it to the reference engine.
+Arena adds market orders, a tick grid, a per-order quantity cap, owners (only the owner may cancel), optional self-trade prevention and L2 `Level` events. A market order is defined as a limit at the worst possible price whose remainder is cancelled, which is also how the differential test expresses it to the reference engine.
+
+### Self-trade prevention
+
+`EngineConfig::self_trade` selects the policy. The default, `Off`, is the reference behaviour: orders of the same owner trade with each other, and the differential test checks that. `CancelNewest` works as follows:
+
+- While matching, the incoming order looks at the next resting order it would trade with (best price, then time priority, skipping cancelled orders). If that order has the same owner, matching stops.
+- The incoming order's remaining quantity is cancelled with `Done { reason: SelfTrade }`. It never rests, and for a market order this replaces `Expired`.
+- The resting order is not touched. Trades already made with other owners' orders, earlier in the same command, stand.
+- Orders queued behind the owner's resting order at the same level are not reached.
+
+The reference engine has no owners, so this mode is covered by the Rust unit tests and the random-stream invariant test only, not by the differential test. The simulation and the browser run with the default, so fingerprints are unchanged.
 
 ## 3. Decisions and trade-offs
 
 ### 3.1 Orders in a dense `Vec`, not a `HashMap`
 
-Ids are dense, so `orders[id - 1]` is both the index and the archive: O(1) lookup with no hashing, and no `HashMap` iteration order to leak into results. The cost is memory proportional to all orders ever accepted (≈ 48 bytes each), which is fine for a session, and the same trade-off exchanges make with a per-day order store.
+Ids are dense, so `orders[id - 1]` is both the index and the archive: O(1) lookup with no hashing, and no `HashMap` iteration order to leak into results. The cost is memory proportional to all orders ever accepted (40 bytes each), which is fine for a session, and the same trade-off exchanges make with a per-day order store (see [Known limits](#5-known-limits)).
 
 ### 3.2 Lazy cancels
 
@@ -49,11 +60,15 @@ No floats, no clocks, no randomness outside the seeded generator, no hash-map it
 
 ### 3.5 The fingerprint chain
 
-After command *n*: `chain[n] = FNV-1a(chain[n−1], seq, ts, command, every event it produced)`. A replay that matches at step *n* matched at every earlier step too, and a single changed command changes every later fingerprint (tested). FNV-1a is used because it is tiny and portable; it is a consistency check, not a security control. A tamper-evident log would use a cryptographic hash instead.
+After command *n*: `chain[n] = FNV-1a(chain[n−1], seq, ts, command, every event it produced)`. A replay that matches at step *n* matched at every earlier step too, and a single changed command changes every later fingerprint (tested). FNV-1a is used because it is tiny, portable and identical natively and in WebAssembly.
+
+What it detects: **accidental divergence**. A replay on another platform, a newer build, a dropped or reordered command, or a bug that changes any event changes the fingerprint at that step and every step after it.
+
+What it does not detect: **tampering**. FNV-1a is not collision-resistant, so a determined editor could craft a different journal with the same 64-bit value; more simply, anyone who can edit the journal can recompute the whole chain. Swapping in SHA-256 would fix the first problem only. A tamper-evident log also needs the head of the chain published or signed somewhere the editor cannot change it. Arena does neither, and its "verified" means "this replay reproduced the live run", not "this journal is authentic".
 
 ### 3.6 No `wasm-bindgen`
 
-The module exports plain functions taking and returning numbers. Results (events, depth, journal rows) go into a `Vec<f64>` whose pointer TypeScript reads as a `Float64Array`. Every integer involved stays below 2^53, so `f64` carries it exactly, and JavaScript gets ordinary numbers rather than BigInts. Result: a 79 KB module with zero imports, no generated glue and no build tool beyond `cargo`.
+The module exports plain functions taking and returning numbers. Results (events, depth, journal rows) go into a `Vec<f64>` whose pointer TypeScript reads as a `Float64Array`. Prices, quantities, ids, owners and timestamps in a session stay below 2^53, so `f64` carries them exactly, and JavaScript gets ordinary numbers rather than BigInts. One exception: a market buy is accepted at the sentinel price `Price::MAX`, which `f64` cannot represent exactly; the app ignores the price of market orders (`web/src/core/session.ts`). The fingerprint is a 64-bit value, so it is passed as two 32-bit halves. Result: an 81 KB module with zero imports, no generated glue and no build tool beyond `cargo`.
 
 ### 3.7 The exchange runs in a Web Worker
 
@@ -80,6 +95,17 @@ Bot commands go through the sequencer like the player's. Their logic lives outsi
 
 Charges use F&O Wrapped's dated rate table for index futures (2026): brokerage min(₹20, 0.03%) per executed order, STT 0.05% of sells, NSE ₹1.73 per lakh, SEBI ₹10 per crore, stamp duty 0.002% of buys, GST 18% on brokerage + exchange + SEBI. "Against fair value" sums, over every fill, how far the price was from the hidden fair value at that moment, signed so that negative means edge given away: mostly the spread, plus timing.
 
-## 5. Limits
+## 5. Known limits
 
-Single instrument, single process, in-memory. No self-trade prevention, no auctions, no circuit breakers. The p99.9 latency (≈15–20 µs on a shared VM) comes from allocation inside price levels and is the next thing to fix ([BENCHMARKS](BENCHMARKS.md)).
+| Limit | Detail |
+|-------|--------|
+| **Unbounded order archive** | Every accepted order stays in `Engine::orders` for the life of the engine, 40 bytes each, because the dense id is its index. Nothing is evicted. |
+| **Unbounded journal** | Every command stays in the journal (40 bytes) with its fingerprint (8 bytes). With the archive, that is up to 88 bytes per command: about 88 MB per million commands, all in memory. There is no snapshot-and-truncate. |
+| **Cancelled-order tombstones** | A cancel leaves the order's id (8 bytes) in its level's queue (§3.2). Tombstones are removed only when matching reaches them at the front of the queue or when the level's last live order goes. A level that always keeps one live order and never trades collects tombstones without bound, and `queue`, `queue_ahead`, `book_hash` and `check_invariants` walk them. |
+| **Single instrument, single thread** | One book per engine; the engine is not shared across threads. |
+| **No persistence** | State lives in process memory. The browser can download the journal as a JSON file, but nothing is saved automatically and there is no import or restore yet ([ROADMAP](ROADMAP.md)). |
+| **No self-trade prevention by default** | `SelfTradePrevention::Off` is the default, to match the reference engine. `CancelNewest` is the only other policy, and the differential test does not cover it (§2). |
+| **Quantity bounds** | `max_qty` is at most 2^32 (`MAX_ORDER_QTY`, checked by `Engine::new`), and a level counts its orders in a `u32`, so a single price can hold fewer than 2^32 orders. |
+| **Fingerprint is not tamper-evident** | FNV-1a detects accidental divergence only (§3.5). |
+| **Order types** | Limit (rests until filled or cancelled), market (immediate-or-cancel) and cancel only. No amend, no other time-in-force, no auctions, no circuit breakers. |
+| **Latency tail** | p99.9 is about 3–7 µs from an empty book and 7–15 µs on a book of a million orders, on a shared VM ([BENCHMARKS](BENCHMARKS.md)). |

@@ -8,6 +8,10 @@
 //!   the same book and the same events, byte for byte;
 //! * a running fingerprint, `chain[n] = H(chain[n-1], seq, ts, events of n)`,
 //!   lets anyone check that a replay matches the original at every step.
+//!
+//! `H` is FNV-1a: the chain detects accidental divergence (bugs, platform
+//! differences, lost or changed commands), not tampering. Anyone who can
+//! edit the journal can recompute the chain.
 
 use crate::engine::{Engine, EngineConfig};
 use crate::hash::Fnv;
@@ -261,5 +265,6 @@ pub fn done_word(r: DoneReason) -> u64 {
         DoneReason::Filled => 1,
         DoneReason::Cancelled => 2,
         DoneReason::Expired => 3,
+        DoneReason::SelfTrade => 4,
     }
 }
