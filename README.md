@@ -25,7 +25,7 @@ Built by **Vikas Pal** (Software Engineer, Fintech). Arena brings together three
 4. Under the hood, drag **Chaos** to 30%: packets are dropped, the client detects the gaps and heals from snapshots.
 5. Press **Pause and time-travel** and drag the slider. The exchange is rebuilt from its journal at that point, and the fingerprint is checked against the one recorded live.
 6. Press **Run 1M commands** to benchmark the engine in your own browser.
-7. **End session** for your session, Wrapped: net P&L after charges, win rate, how your fills compared with the hidden fair value, and a verified audit trail.
+7. **End session** for your session, Wrapped: net P&L after charges, win rate, how your fills compared with the hidden fair value, and a replay of the whole session checked against the fingerprints recorded live.
 
 `?seed=123` replays the same market: the bots make exactly the same moves until you trade differently.
 
@@ -52,7 +52,7 @@ flowchart LR
 ```
 
 - **Matching engine** (`crates/engine`): price-time priority, limit / market (IOC) / cancel, integer prices, lazy cancels (a cancelled order becomes a tombstone that matching skips, so a cancel costs O(log n), not a queue scan). No floats, clocks or hash-map iteration anywhere, so results are byte-for-byte reproducible.
-- **Sequencer and journal** (`exchange.rs`): every command gets a sequence number and is journalled before it is applied. State is a pure function of the journal, and a chained fingerprint after each command lets anyone verify a replay at every step.
+- **Sequencer and journal** (`exchange.rs`): every command gets a sequence number and is journalled before it is applied. State is a pure function of the journal, and a chained fingerprint after each command lets anyone verify a replay at every step. The chain uses FNV-1a, so it detects **accidental divergence** (a bug, a platform difference, a lost or changed command), **not tampering**: anyone who can edit a journal can recompute a matching chain.
 - **Bots** (`sim.rs`): a market maker that skews its quotes against inventory, noise traders, and a momentum trader, all around a hidden fair value that drifts and occasionally jumps. They go through the sequencer like anyone else, so replaying needs no bot logic.
 - **WebAssembly** (`crates/wasm`): plain exported functions; results are written to a buffer in module memory that TypeScript reads directly. Native and WebAssembly builds produce the same fingerprint (checked in CI).
 - **Two channels**, like a real venue: market data is a numbered, lossy stream of deltas with gap detection and snapshot recovery; the player's own order events use a reliable private channel.
@@ -69,7 +69,7 @@ Design decisions and trade-offs: [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md).
 |-------|-------------------|
 | The matching rules are right | `difftest/`: seeded random streams from three owners (limits, markets, cancels, cancels by the wrong owner, invalid input) run through this engine (default configuration) and [mini-matching-engine](https://github.com/vikaspal1704/mini-matching-engine); order ids, every trade with its owners, every rejection, remaining quantities and the whole book must match after **every** command. 300 seeds × 5,000 commands (1.5 million commands, 963,654 trades) in CI. Removing the engine's owner check is caught at command 743, and turning self-trade prevention on by default at command 2. |
 | The book never goes wrong | `check_invariants` after every command in 400,000 random commands (with and without self-trade prevention): never crossed, no empty levels, level totals equal live orders, FIFO order kept. Property tests (`crates/engine/tests/properties.rs`, proptest) check the same from the public API on arbitrary configurations and command streams, plus conservation of traded quantity, exact replay of the journal, and no panic on any value of any field, including `u64`/`i64` extremes. |
-| Replays are exact | Every prefix of a 3,000-step session replays to the recorded fingerprint; changing one command changes every later fingerprint. The browser checks this on demand. |
+| Replays are exact | Every prefix of a 3,000-step session replays to the recorded fingerprint; changing one command changes every later fingerprint. The browser checks this on demand. This is a consistency check against accidental divergence, not tamper evidence ([why](docs/ARCHITECTURE.md#35-the-fingerprint-chain)). |
 | It is deterministic everywhere | Same seed → same fingerprint natively, in WebAssembly (Node), and in two separate browser pages (Playwright). |
 | The feed heals | Under 20% packet loss, the client book rebuilt from deltas and snapshots ends identical to the engine's book. |
 | Nothing leaves the browser | Playwright asserts zero third-party requests; the page's CSP allows only its own origin. |

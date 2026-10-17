@@ -60,7 +60,11 @@ No floats, no clocks, no randomness outside the seeded generator, no hash-map it
 
 ### 3.5 The fingerprint chain
 
-After command *n*: `chain[n] = FNV-1a(chain[n−1], seq, ts, command, every event it produced)`. A replay that matches at step *n* matched at every earlier step too, and a single changed command changes every later fingerprint (tested). FNV-1a is used because it is tiny and portable; it is a consistency check, not a security control. A tamper-evident log would use a cryptographic hash instead.
+After command *n*: `chain[n] = FNV-1a(chain[n−1], seq, ts, command, every event it produced)`. A replay that matches at step *n* matched at every earlier step too, and a single changed command changes every later fingerprint (tested). FNV-1a is used because it is tiny, portable and identical natively and in WebAssembly.
+
+What it detects: **accidental divergence**. A replay on another platform, a newer build, a dropped or reordered command, or a bug that changes any event changes the fingerprint at that step and every step after it.
+
+What it does not detect: **tampering**. FNV-1a is not collision-resistant, so a determined editor could craft a different journal with the same 64-bit value; more simply, anyone who can edit the journal can recompute the whole chain. Swapping in SHA-256 would fix the first problem only. A tamper-evident log also needs the head of the chain published or signed somewhere the editor cannot change it. Arena does neither, and its "verified" means "this replay reproduced the live run", not "this journal is authentic".
 
 ### 3.6 No `wasm-bindgen`
 

@@ -17,4 +17,4 @@ Rust engine with lazy cancels and a fingerprinted journal; differential test aga
 
 ## Phase 3: multiplayer
 
-A small server (FastAPI, reusing the auth and deployment patterns of [recruiter-backend](https://github.com/vikaspal1704/recruiter-backend) and the WebSocket fan-out of [live-orderbook-feed](https://github.com/vikaspal1704/live-orderbook-feed)) running the same engine natively: several people in one market, a leaderboard by net P&L after charges, and the journal published at the end so anyone can verify the results.
+A small server (FastAPI, reusing the auth and deployment patterns of [recruiter-backend](https://github.com/vikaspal1704/recruiter-backend) and the WebSocket fan-out of [live-orderbook-feed](https://github.com/vikaspal1704/live-orderbook-feed)) running the same engine natively: several people in one market, a leaderboard by net P&L after charges, and the journal published at the end so anyone can verify the results (with a signed SHA-256 chain head, so the published journal is also tamper-evident).

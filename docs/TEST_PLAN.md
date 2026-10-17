@@ -34,7 +34,7 @@ Every test below runs in CI (`.github/workflows/ci.yml`).
 | `same_seed_same_commands` | Workload is seeded |
 | `replaying_any_prefix_gives_the_same_fingerprint_and_book` | Prefixes 0, 1, 17, 500, all |
 | `same_seed_same_market_different_seed_different_market` | Determinism of the simulation |
-| `a_changed_command_changes_every_later_fingerprint` | Fingerprint chain detects an edited journal |
+| `a_changed_command_changes_every_later_fingerprint` | Replaying a journal with one changed command diverges from the recorded chain at that entry and after it (accidental divergence; FNV-1a is not tamper-proof) |
 | `the_simulated_market_stays_healthy` | 20,000 steps: trades happen, both sides quoted, tight spread, book tracks fair value |
 | `player_orders_trade_with_bots` | A market buy fills against the bots |
 | `anchored_market_follows_the_external_price_and_still_replays` | Book tracks an external price path; the journal alone replays it |
