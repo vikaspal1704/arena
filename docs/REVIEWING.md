@@ -44,7 +44,7 @@ Tests: `crates/engine/tests/matching.rs` (rules, self-trade prevention, invarian
 | Matches the reference engine | `difftest/` | `python difftest/compare.py --seeds 1-300 --count 5000` → `963,654 trades`, every command equal |
 | Deterministic; replays are exact | no floats, clocks, hash maps or `unsafe` in `crates/engine/src` (the script greps for them) | property `replaying_the_journal_reproduces_every_fingerprint`; `replay.rs`; pinned fingerprint `8d44c209bd24be3e` native (CI) and wasm (`web/tests/unit/core.test.ts`) |
 | No dependencies | `crates/engine/Cargo.toml` (proptest is dev-only) | `cargo tree -p arena-engine -e normal` |
-| 81 KB wasm, no JavaScript glue | `crates/wasm` | the script: size, and `WebAssembly.Module.imports` is `[]` |
+| wasm module under 90 KB, no JavaScript glue | `crates/wasm` | the script: size, and `WebAssembly.Module.imports` is `[]` |
 | Self-trade prevention, off by default | `SelfTradePrevention`, l. 41; check at l. 244 | six `stp_*` tests; random invariants in both modes; difftest confirms the default |
 | Benchmark cancels hit live orders | `workload.rs` `Generator::push`, l. 148 | `every_cancel_targets_a_live_order`; the benchmark fails at ≥2% rejected |
 | Benchmark numbers | `crates/bench`, `web/scripts/bench-wasm.mjs` | counts and fingerprints asserted by the script; timings in `docs/BENCHMARKS.md`, host-dependent |

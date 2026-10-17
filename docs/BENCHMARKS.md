@@ -40,7 +40,7 @@ The deep book is roughly twice as slow at the median. It has not been profiled; 
 
 ### WebAssembly
 
-The browser benchmark runs the `standard` mix (`workload::commands`, seed 7) through the same code compiled to `wasm32-unknown-unknown` (81 KB module, 83,342 bytes).
+The browser benchmark runs the `standard` mix (`workload::commands`, seed 7) through the same code compiled to `wasm32-unknown-unknown` (83,342 bytes with rustc 1.97.0; the size varies with the Rust version).
 
 | Runtime | Commands | Trades | Throughput |
 |---------|----------|--------|-----------|
