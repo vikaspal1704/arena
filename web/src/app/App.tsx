@@ -95,7 +95,7 @@ export function App() {
       <UnderTheHood ex={ex} />
       <footer className="foot">
         {REAL_MODE ? 'Real NSE prices from your Kite account; simulated fills and play money.' : 'Simulated market with play money.'}{' '}
-        <a href={REPO}>Source on GitHub</a>. Built by Vikas Pal.
+        <a href={REPO}>Source on GitHub</a>. Built by <a href="https://vikaspal.is-a.dev/">Vikas Pal</a>.
       </footer>
       <CoachNotes ex={ex} />
       {!started && (
