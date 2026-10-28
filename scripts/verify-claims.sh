@@ -121,15 +121,15 @@ if [ "$MUTATIONS" -eq 1 ]; then
   }
   props="cargo test -q --release -p arena-engine --test properties"
   mutate "proptest catches a cancel that leaves the level total unchanged" \
-    's/        level.qty -= rem;/        let _ = rem;/' crates/engine/src/engine.rs "$props"
+    's/        level.qty -= remaining;/        let _ = remaining;/' crates/engine/src/book.rs "$props"
   mutate "proptest catches trades printed at the taker's price" \
-    's/                price: best,/                price: if limit == Price::MAX || limit == 1 { best } else { limit },/' \
+    '/trade_id: \*next_trade_id,/{n;s/                price,/                price: orders.issued(taker_id).price,/}' \
     crates/engine/src/engine.rs "$props"
   mutate "scenario tests catch naive one-to-one matching (an order stops after its first trade)" \
-    's/^            book.prune(best);$/            book.prune(best);\n            break;/' crates/engine/src/engine.rs \
+    's/^            changes.touch(maker_side, price);$/            changes.touch(maker_side, price);\n            return MatchEnd::Exhausted;/' crates/engine/src/engine.rs \
     "cargo test -q --release -p arena-engine --test scenarios"
   mutate "unit tests catch time priority broken (newest first)" \
-    's/        level.queue.push_back(id);/        level.queue.push_front(id);/' crates/engine/src/book.rs \
+    's/        self.queue.push_back(id);/        self.queue.push_front(id);/' crates/engine/src/book.rs \
     "cargo test -q --release -p arena-engine --test matching"
   mutate "pinned fingerprint catches a chain that ignores timestamps" \
     's/    h.write(entry.ts_ms);/    let _ = entry.ts_ms;/' crates/engine/src/exchange.rs \

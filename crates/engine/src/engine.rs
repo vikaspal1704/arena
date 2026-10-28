@@ -1,6 +1,13 @@
 //! The matching engine: price-time priority, single instrument, no floats.
+//!
+//! `Engine` coordinates three parts that each keep their own invariants:
+//! the `Book` (price levels and their totals), the `OrderStore` (every
+//! accepted order, by id) and `LevelChanges` (which levels to publish after
+//! a command). It validates commands, runs the matching loop and emits
+//! events; it never edits a level's or an order's fields directly.
 
-use crate::book::BookSide;
+use crate::book::Book;
+use crate::orders::OrderStore;
 use crate::types::{
     BookLevel, Command, DoneReason, Event, Order, OrderId, OrderStatus, Owner, Price, Qty,
     RejectReason, Side,
@@ -53,17 +60,46 @@ pub enum SelfTradePrevention {
     CancelNewest,
 }
 
+impl SelfTradePrevention {
+    /// Whether matching must stop before a trade between these owners.
+    fn blocks(self, maker: Owner, taker: Owner) -> bool {
+        self == SelfTradePrevention::CancelNewest && maker == taker
+    }
+}
+
+/// Levels changed by the current command, in first-touched order, so that
+/// each is published once as an `Event::Level`.
+#[derive(Debug, Clone, Default)]
+struct LevelChanges(Vec<(Side, Price)>);
+
+impl LevelChanges {
+    fn touch(&mut self, side: Side, price: Price) {
+        if !self.0.contains(&(side, price)) {
+            self.0.push((side, price));
+        }
+    }
+
+    fn clear(&mut self) {
+        self.0.clear();
+    }
+}
+
+/// Why matching stopped, when the incoming order may still have quantity left.
+#[derive(PartialEq, Eq)]
+enum MatchEnd {
+    /// Filled, or nothing left on the other side that it crosses.
+    Exhausted,
+    /// Self-trade prevention stopped it.
+    SelfTrade,
+}
+
 #[derive(Debug, Clone)]
 pub struct Engine {
     config: EngineConfig,
-    bids: BookSide,
-    asks: BookSide,
-    /// Every order ever accepted; `orders[id - 1]`. Ids are dense, so this is
-    /// both the index and the archive (no hash map, no iteration-order risk).
-    orders: Vec<Order>,
+    book: Book,
+    orders: OrderStore,
     next_trade_id: u64,
-    /// Levels changed by the current command, in first-touched order.
-    touched: Vec<(Side, Price)>,
+    changes: LevelChanges,
 }
 
 impl Engine {
@@ -75,11 +111,10 @@ impl Engine {
         );
         Engine {
             config,
-            bids: BookSide::new(Side::Buy),
-            asks: BookSide::new(Side::Sell),
-            orders: Vec::new(),
+            book: Book::default(),
+            orders: OrderStore::default(),
             next_trade_id: 1,
-            touched: Vec::new(),
+            changes: LevelChanges::default(),
         }
     }
 
@@ -87,18 +122,8 @@ impl Engine {
     /// front, so the hot path never grows a vector or takes a page fault.
     pub fn with_capacity(config: EngineConfig, orders: usize) -> Self {
         let mut e = Engine::new(config);
-        let blank = Order {
-            id: 0,
-            owner: 0,
-            side: Side::Buy,
-            price: 0,
-            original_qty: 0,
-            remaining_qty: 0,
-            status: OrderStatus::Cancelled,
-        };
-        e.orders.resize(orders, blank);
-        e.orders.clear();
-        e.touched.reserve(64);
+        e.orders.preallocate(orders);
+        e.changes.0.reserve(64);
         e
     }
 
@@ -110,67 +135,122 @@ impl Engine {
     /// on bad input: invalid commands produce a `Rejected` event and change
     /// nothing.
     pub fn apply(&mut self, cmd: Command, out: &mut Vec<Event>) {
-        self.touched.clear();
-        match cmd {
+        self.changes.clear();
+        let result = match cmd {
             Command::Limit {
                 owner,
                 side,
                 price,
                 qty,
-            } => {
-                if let Some(reason) = self.validate_price(price).or(self.validate_qty(qty)) {
-                    out.push(Event::Rejected { owner, reason });
-                    return;
-                }
-                let id = self.accept(owner, side, price, qty, false, out);
-                self.match_order(id, out);
-                let order = &self.orders[idx(id)];
-                if order.status.is_live() {
-                    let (side, price, rem) = (order.side, order.price, order.remaining_qty);
-                    self.side_mut(side).push(price, id, rem);
-                    touch(&mut self.touched, side, price);
-                }
-            }
-            Command::Market { owner, side, qty } => {
-                if let Some(reason) = self.validate_qty(qty) {
-                    out.push(Event::Rejected { owner, reason });
-                    return;
-                }
-                // A market order is a limit at the worst possible price, and
-                // whatever doesn't fill immediately expires.
-                let price = match side {
-                    Side::Buy => Price::MAX,
-                    Side::Sell => 1,
-                };
-                let id = self.accept(owner, side, price, qty, true, out);
-                self.match_order(id, out);
-                let order = &mut self.orders[idx(id)];
-                if order.status.is_live() {
-                    order.status = OrderStatus::Cancelled;
-                    out.push(Event::Done {
-                        order_id: id,
-                        owner,
-                        reason: DoneReason::Expired,
-                        remaining_qty: order.remaining_qty,
-                    });
-                }
-            }
-            Command::Cancel { owner, order_id } => {
-                if let Err(reason) = self.cancel(owner, order_id, out) {
-                    out.push(Event::Rejected { owner, reason });
-                    return;
-                }
-            }
+            } => self.limit(owner, side, price, qty, out),
+            Command::Market { owner, side, qty } => self.market(owner, side, qty, out),
+            Command::Cancel { owner, order_id } => self.cancel(owner, order_id, out),
+        };
+        match result {
+            Ok(()) => self.publish_levels(out),
+            Err(reason) => out.push(Event::Rejected {
+                owner: cmd_owner(&cmd),
+                reason,
+            }),
         }
-        self.emit_levels(out);
     }
 
-    fn validate_price(&self, price: Price) -> Option<RejectReason> {
-        (price < 1 || price % self.config.tick != 0).then_some(RejectReason::BadPrice)
+    /// Matches what crosses, then rests whatever is left at the limit price.
+    fn limit(
+        &mut self,
+        owner: Owner,
+        side: Side,
+        price: Price,
+        qty: Qty,
+        out: &mut Vec<Event>,
+    ) -> Result<(), RejectReason> {
+        self.validate_price(price)?;
+        self.validate_qty(qty)?;
+        let id = self.accept(owner, side, price, qty, false, out);
+        self.match_and_report(id, out);
+        let order = self.orders.issued(id);
+        if order.is_live() {
+            let remaining = order.remaining_qty;
+            self.book.side_mut(side).add(price, id, remaining);
+            self.changes.touch(side, price);
+        }
+        Ok(())
     }
 
-    fn validate_qty(&self, qty: Qty) -> Option<RejectReason> {
-        (qty == 0 || qty > self.config.max_qty).then_some(RejectReason::BadQty)
+    /// A limit at the worst possible price whose unfilled part expires
+    /// (immediate-or-cancel).
+    fn market(
+        &mut self,
+        owner: Owner,
+        side: Side,
+        qty: Qty,
+        out: &mut Vec<Event>,
+    ) -> Result<(), RejectReason> {
+        self.validate_qty(qty)?;
+        let worst = match side {
+            Side::Buy => Price::MAX,
+            Side::Sell => 1,
+        };
+        let id = self.accept(owner, side, worst, qty, true, out);
+        self.match_and_report(id, out);
+        let order = self.orders.issued_mut(id);
+        if order.is_live() {
+            order.cancel();
+            out.push(Event::Done {
+                order_id: id,
+                owner,
+                reason: DoneReason::Expired,
+                remaining_qty: order.remaining_qty,
+            });
+        }
+        Ok(())
+    }
+
+    /// Cancels a live order of `owner`. Lazy: the order's id stays in its
+    /// level's queue as a tombstone (see `book`).
+    fn cancel(
+        &mut self,
+        owner: Owner,
+        order_id: OrderId,
+        out: &mut Vec<Event>,
+    ) -> Result<(), RejectReason> {
+        let order = self
+            .orders
+            .get_mut(order_id)
+            .ok_or(RejectReason::UnknownOrder)?;
+        if !order.is_live() {
+            return Err(RejectReason::NotCancellable);
+        }
+        if order.owner != owner {
+            return Err(RejectReason::NotOwner);
+        }
+        order.cancel();
+        let (side, price, remaining) = (order.side, order.price, order.remaining_qty);
+        out.push(Event::Done {
+            order_id,
+            owner,
+            reason: DoneReason::Cancelled,
+            remaining_qty: remaining,
+        });
+        self.book.side_mut(side).cancel(price, remaining);
+        self.changes.touch(side, price);
+        Ok(())
+    }
+
+    fn validate_price(&self, price: Price) -> Result<(), RejectReason> {
+        if price < 1 || price % self.config.tick != 0 {
+            Err(RejectReason::BadPrice)
+        } else {
+            Ok(())
+        }
+    }
+
+    fn validate_qty(&self, qty: Qty) -> Result<(), RejectReason> {
+        if qty == 0 || qty > self.config.max_qty {
+            Err(RejectReason::BadQty)
+        } else {
+            Ok(())
+        }
     }
 
     fn accept(
@@ -182,16 +262,8 @@ impl Engine {
         market: bool,
         out: &mut Vec<Event>,
     ) -> OrderId {
-        let id = self.orders.len() as OrderId + 1;
-        self.orders.push(Order {
-            id,
-            owner,
-            side,
-            price,
-            original_qty: qty,
-            remaining_qty: qty,
-            status: OrderStatus::Open,
-        });
+        let id = self.orders.next_id();
+        self.orders.insert(Order::new(id, owner, side, price, qty));
         out.push(Event::Accepted {
             order_id: id,
             owner,
@@ -203,94 +275,13 @@ impl Engine {
         id
     }
 
-    fn match_order(&mut self, taker_id: OrderId, out: &mut Vec<Event>) {
-        let Engine {
-            config,
-            bids,
-            asks,
-            orders,
-            next_trade_id,
-            touched,
-        } = self;
-        let mut self_trade = false;
-        let (taker_side, limit, taker_owner) = {
-            let t = &orders[idx(taker_id)];
-            (t.side, t.price, t.owner)
-        };
-        let book = match taker_side {
-            Side::Buy => asks,
-            Side::Sell => bids,
-        };
-        loop {
-            let taker_rem = orders[idx(taker_id)].remaining_qty;
-            if taker_rem == 0 {
-                break;
-            }
-            let Some(best) = book.best_price() else { break };
-            let crosses = match taker_side {
-                Side::Buy => best <= limit,
-                Side::Sell => best >= limit,
-            };
-            if !crosses {
-                break;
-            }
-            let level = book.level_mut(best).expect("best level exists");
-            let maker_id = *level.queue.front().expect("a live level has a queue");
-            let maker = &mut orders[idx(maker_id)];
-            if !maker.status.is_live() {
-                level.queue.pop_front(); // tombstone of a cancelled order
-                continue;
-            }
-            if config.self_trade == SelfTradePrevention::CancelNewest && maker.owner == taker_owner
-            {
-                self_trade = true;
-                break;
-            }
-            let qty = taker_rem.min(maker.remaining_qty);
-            maker.remaining_qty -= qty;
-            level.qty -= qty;
-            let maker_owner = maker.owner;
-            let maker_done = maker.remaining_qty == 0;
-            if maker_done {
-                maker.status = OrderStatus::Filled;
-                level.queue.pop_front();
-                level.live -= 1;
-            } else {
-                maker.status = OrderStatus::Partial;
-            }
-            let taker = &mut orders[idx(taker_id)];
-            taker.remaining_qty -= qty;
-            taker.status = if taker.remaining_qty == 0 {
-                OrderStatus::Filled
-            } else {
-                OrderStatus::Partial
-            };
-
-            out.push(Event::Trade {
-                trade_id: *next_trade_id,
-                price: best,
-                qty,
-                maker_order_id: maker_id,
-                taker_order_id: taker_id,
-                maker_owner,
-                taker_owner,
-                aggressor: taker_side,
-            });
-            *next_trade_id += 1;
-            if maker_done {
-                out.push(Event::Done {
-                    order_id: maker_id,
-                    owner: maker_owner,
-                    reason: DoneReason::Filled,
-                    remaining_qty: 0,
-                });
-            }
-            touch(touched, taker_side.opposite(), best);
-            book.prune(best);
-        }
-        let taker = &mut orders[idx(taker_id)];
-        if self_trade {
-            taker.status = OrderStatus::Cancelled;
+    /// Runs the matching loop for an accepted order, then reports how it
+    /// ended if it is finished (filled, or stopped by self-trade prevention).
+    fn match_and_report(&mut self, taker_id: OrderId, out: &mut Vec<Event>) {
+        let end = self.match_order(taker_id, out);
+        let taker = self.orders.issued_mut(taker_id);
+        if end == MatchEnd::SelfTrade {
+            taker.cancel();
             out.push(Event::Done {
                 order_id: taker_id,
                 owner: taker.owner,
@@ -307,69 +298,90 @@ impl Engine {
         }
     }
 
-    fn cancel(
-        &mut self,
-        owner: Owner,
-        order_id: OrderId,
-        out: &mut Vec<Event>,
-    ) -> Result<(), RejectReason> {
-        let order = slot(order_id)
-            .and_then(|i| self.orders.get_mut(i))
-            .ok_or(RejectReason::UnknownOrder)?;
-        if !order.status.is_live() {
-            return Err(RejectReason::NotCancellable);
+    /// Trades the incoming order against the best opposite level, front of
+    /// the queue first, for as long as it has quantity and crosses: one
+    /// order can trade with many resting orders across many levels. Every
+    /// trade prints at the resting (maker) order's price.
+    fn match_order(&mut self, taker_id: OrderId, out: &mut Vec<Event>) -> MatchEnd {
+        let Engine {
+            config,
+            book,
+            orders,
+            next_trade_id,
+            changes,
+        } = self;
+        let (taker_side, taker_owner) = {
+            let t = orders.issued(taker_id);
+            (t.side, t.owner)
+        };
+        let maker_side = taker_side.opposite();
+        let makers = book.side_mut(maker_side);
+        loop {
+            let taker = orders.issued(taker_id);
+            if taker.remaining_qty == 0 {
+                return MatchEnd::Exhausted;
+            }
+            let Some(price) = makers.best_price().filter(|&p| taker.crosses(p)) else {
+                return MatchEnd::Exhausted;
+            };
+            let wanted = taker.remaining_qty;
+            let maker_id = makers.front(price).expect("a level is never empty");
+            let maker = orders.issued_mut(maker_id);
+            if !maker.is_live() {
+                makers.drop_tombstone(price);
+                continue;
+            }
+            if config.self_trade.blocks(maker.owner, taker_owner) {
+                return MatchEnd::SelfTrade;
+            }
+            let qty = wanted.min(maker.remaining_qty);
+            maker.fill(qty);
+            let (maker_owner, maker_filled) = (maker.owner, maker.remaining_qty == 0);
+            makers.fill_front(price, qty, maker_filled);
+            orders.issued_mut(taker_id).fill(qty);
+
+            out.push(Event::Trade {
+                trade_id: *next_trade_id,
+                price,
+                qty,
+                maker_order_id: maker_id,
+                taker_order_id: taker_id,
+                maker_owner,
+                taker_owner,
+                aggressor: taker_side,
+            });
+            *next_trade_id += 1;
+            if maker_filled {
+                out.push(Event::Done {
+                    order_id: maker_id,
+                    owner: maker_owner,
+                    reason: DoneReason::Filled,
+                    remaining_qty: 0,
+                });
+            }
+            changes.touch(maker_side, price);
         }
-        if order.owner != owner {
-            return Err(RejectReason::NotOwner);
-        }
-        order.status = OrderStatus::Cancelled;
-        let (side, price, rem) = (order.side, order.price, order.remaining_qty);
-        out.push(Event::Done {
-            order_id,
-            owner,
-            reason: DoneReason::Cancelled,
-            remaining_qty: rem,
-        });
-        let book = self.side_mut(side);
-        let level = book.level_mut(price).expect("a live order's level exists");
-        level.qty -= rem;
-        level.live -= 1;
-        book.prune(price);
-        touch(&mut self.touched, side, price);
-        Ok(())
     }
 
-    fn emit_levels(&mut self, out: &mut Vec<Event>) {
-        for &(side, price) in &self.touched {
-            let (qty, orders) = self
-                .side(side)
-                .level(price)
-                .map_or((0, 0), |l| (l.qty, l.live));
+    /// One `Level` event per level the command changed, with its new totals.
+    fn publish_levels(&self, out: &mut Vec<Event>) {
+        for &(side, price) in &self.changes.0 {
+            let level = self.book.level_view(side, price);
             out.push(Event::Level {
                 side,
                 price,
-                qty,
-                orders,
+                qty: level.qty,
+                orders: level.orders,
             });
         }
     }
 
-    fn side(&self, side: Side) -> &BookSide {
-        match side {
-            Side::Buy => &self.bids,
-            Side::Sell => &self.asks,
-        }
-    }
-
-    fn side_mut(&mut self, side: Side) -> &mut BookSide {
-        match side {
-            Side::Buy => &mut self.bids,
-            Side::Sell => &mut self.asks,
-        }
+    pub fn book(&self) -> &Book {
+        &self.book
     }
 
     pub fn order(&self, id: OrderId) -> Option<&Order> {
-        slot(id).and_then(|i| self.orders.get(i))
+        self.orders.get(id)
     }
 
     pub fn order_count(&self) -> usize {
@@ -377,60 +389,47 @@ impl Engine {
     }
 
     pub fn best_bid(&self) -> Option<Price> {
-        self.bids.best_price()
+        self.book.best_bid()
     }
 
     pub fn best_ask(&self) -> Option<Price> {
-        self.asks.best_price()
+        self.book.best_ask()
     }
 
     /// Number of price levels: (bids, asks).
     pub fn level_counts(&self) -> (usize, usize) {
-        (self.bids.level_count(), self.asks.level_count())
+        self.book.level_counts()
     }
 
     /// Number of live orders resting in the book (O(levels)).
     pub fn resting_orders(&self) -> u64 {
-        [&self.bids, &self.asks]
-            .iter()
-            .flat_map(|side| side.iter())
-            .map(|(_, level)| level.live as u64)
-            .sum()
+        self.book.resting_orders()
     }
 
     /// Aggregated book, best levels first.
     pub fn depth(&self, levels: usize) -> (Vec<BookLevel>, Vec<BookLevel>) {
-        (self.bids.levels(levels), self.asks.levels(levels))
+        self.book.depth(levels)
     }
 
     /// Live orders in a level, front of the queue first (for showing queue position).
     pub fn queue(&self, side: Side, price: Price) -> Vec<&Order> {
-        self.side(side)
+        self.book
+            .side(side)
             .level(price)
-            .map(|l| {
-                l.queue
-                    .iter()
-                    .map(|id| &self.orders[idx(*id)])
-                    .filter(|o| o.status.is_live())
-                    .collect()
-            })
+            .map(|l| self.live_orders(l.ids()).collect())
             .unwrap_or_default()
     }
 
     /// For a live resting order: how many live orders, and how much
     /// quantity, are ahead of it in its level's queue.
     pub fn queue_ahead(&self, id: OrderId) -> Option<(u32, Qty)> {
-        let order = self.order(id).filter(|o| o.status.is_live())?;
-        let level = self.side(order.side).level(order.price)?;
-        let (mut n, mut qty) = (0u32, 0);
-        for other in level.queue.iter().take_while(|o| **o != id) {
-            let o = &self.orders[idx(*other)];
-            if o.status.is_live() {
-                n += 1;
-                qty += o.remaining_qty;
-            }
-        }
-        Some((n, qty))
+        let order = self.order(id).filter(|o| o.is_live())?;
+        let level = self.book.side(order.side).level(order.price)?;
+        let ahead = level.ids().take_while(|&other| other != id);
+        Some(
+            self.live_orders(ahead)
+                .fold((0, 0), |(n, qty), o| (n + 1, qty + o.remaining_qty)),
+        )
     }
 
     /// Structural hash of the resting book: every live order, by side,
@@ -438,16 +437,13 @@ impl Engine {
     /// same book, order for order.
     pub fn book_hash(&self) -> u64 {
         let mut h = crate::hash::Fnv::new();
-        for (tag, side) in [(1u64, &self.bids), (2, &self.asks)] {
+        for (tag, side) in [1u64, 2].into_iter().zip(self.book.sides()) {
             for (price, level) in side.iter() {
                 h.write(tag);
                 h.write(*price as u64);
-                for id in &level.queue {
-                    let o = &self.orders[idx(*id)];
-                    if o.status.is_live() {
-                        h.write(o.id);
-                        h.write(o.remaining_qty);
-                    }
+                for o in self.live_orders(level.ids()) {
+                    h.write(o.id);
+                    h.write(o.remaining_qty);
                 }
             }
         }
@@ -455,29 +451,26 @@ impl Engine {
     }
 
     /// Checks the invariants the tests rely on; returns the first violation.
+    /// It recomputes every level from the orders themselves, so it does not
+    /// trust the totals it is checking.
     pub fn check_invariants(&self) -> Result<(), String> {
         if let (Some(b), Some(a)) = (self.best_bid(), self.best_ask()) {
             if b >= a {
                 return Err(format!("crossed book: bid {b} >= ask {a}"));
             }
         }
-        for side in [&self.bids, &self.asks] {
+        for side in self.book.sides() {
             for (price, level) in side.iter() {
-                let live: Vec<_> = level
-                    .queue
-                    .iter()
-                    .map(|id| &self.orders[idx(*id)])
-                    .filter(|o| o.status.is_live())
-                    .collect();
+                let live: Vec<_> = self.live_orders(level.ids()).collect();
                 if live.is_empty() {
                     return Err(format!("empty level kept at {price}"));
                 }
                 let qty: Qty = live.iter().map(|o| o.remaining_qty).sum();
-                if qty != level.qty || live.len() as u32 != level.live {
+                if qty != level.qty() || live.len() as u32 != level.live_orders() {
                     return Err(format!(
                         "level {price}: tracked {}/{} vs actual {}/{}",
-                        level.qty,
-                        level.live,
+                        level.qty(),
+                        level.live_orders(),
                         qty,
                         live.len()
                     ));
@@ -487,7 +480,7 @@ impl Engine {
                 }
             }
         }
-        for o in &self.orders {
+        for o in self.orders.iter() {
             if o.remaining_qty > o.original_qty
                 || (o.status == OrderStatus::Filled)
                     != (o.remaining_qty == 0 && o.status != OrderStatus::Cancelled)
@@ -500,26 +493,21 @@ impl Engine {
         }
         Ok(())
     }
+
+    /// The live orders among queued ids (skipping cancelled tombstones).
+    fn live_orders<'a>(
+        &'a self,
+        ids: impl Iterator<Item = OrderId> + 'a,
+    ) -> impl Iterator<Item = &'a Order> + 'a {
+        ids.map(|id| self.orders.issued(id)).filter(|o| o.is_live())
+    }
 }
 
-/// Where order `id` lives in `Engine::orders`. Only for ids this engine
-/// issued, which are always in range.
-fn idx(id: OrderId) -> usize {
-    (id - 1) as usize
-}
-
-/// Where an order id from outside the engine would live in
-/// `Engine::orders`, if it can exist. `try_from`, not `as`: `usize` is 32
-/// bits on wasm32, where a cast would wrap a large id onto a real order.
-fn slot(id: OrderId) -> Option<usize> {
-    usize::try_from(id.checked_sub(1)?).ok()
-}
-
-/// Records that a level changed in this command (published once, in
-/// first-touched order, by `emit_levels`).
-fn touch(touched: &mut Vec<(Side, Price)>, side: Side, price: Price) {
-    if !touched.contains(&(side, price)) {
-        touched.push((side, price));
+fn cmd_owner(cmd: &Command) -> Owner {
+    match *cmd {
+        Command::Limit { owner, .. }
+        | Command::Market { owner, .. }
+        | Command::Cancel { owner, .. } => owner,
     }
 }
 
@@ -551,8 +539,8 @@ mod tests {
                 &mut out,
             );
         }
-        let level = e.bids.level(100).unwrap();
-        assert_eq!((level.live, level.queue.len()), (1, 1_001));
+        let level = e.book.side(Side::Buy).level(100).unwrap();
+        assert_eq!((level.live_orders(), level.ids().count()), (1, 1_001));
         e.apply(
             Command::Cancel {
                 owner: 1,
@@ -560,6 +548,9 @@ mod tests {
             },
             &mut out,
         );
-        assert!(e.bids.level(100).is_none(), "level and tombstones dropped");
+        assert!(
+            e.book.side(Side::Buy).level(100).is_none(),
+            "level and tombstones dropped"
+        );
     }
 }

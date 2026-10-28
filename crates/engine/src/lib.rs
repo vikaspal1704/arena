@@ -17,6 +17,7 @@ pub mod book;
 pub mod engine;
 pub mod exchange;
 pub mod hash;
+mod orders;
 pub mod sim;
 pub mod types;
 pub mod workload;

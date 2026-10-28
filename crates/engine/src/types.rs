@@ -42,6 +42,10 @@ impl OrderStatus {
     }
 }
 
+/// An accepted order. The engine only hands out shared references, so
+/// outside the crate an `Order` is a read-only view; its state changes only
+/// through `fill` and `cancel`, which keep `status` and `remaining_qty`
+/// consistent.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Order {
     pub id: OrderId,
@@ -51,6 +55,50 @@ pub struct Order {
     pub original_qty: Qty,
     pub remaining_qty: Qty,
     pub status: OrderStatus,
+}
+
+impl Order {
+    pub(crate) fn new(id: OrderId, owner: Owner, side: Side, price: Price, qty: Qty) -> Self {
+        Order {
+            id,
+            owner,
+            side,
+            price,
+            original_qty: qty,
+            remaining_qty: qty,
+            status: OrderStatus::Open,
+        }
+    }
+
+    /// Open or partly filled: it can still trade.
+    pub fn is_live(&self) -> bool {
+        self.status.is_live()
+    }
+
+    /// Whether a resting order on the other side at `price` would trade
+    /// with this one: a buy takes asks at or below its limit, a sell takes
+    /// bids at or above it.
+    pub fn crosses(&self, price: Price) -> bool {
+        match self.side {
+            Side::Buy => price <= self.price,
+            Side::Sell => price >= self.price,
+        }
+    }
+
+    /// Records a fill of `qty` (at most what remains).
+    pub(crate) fn fill(&mut self, qty: Qty) {
+        self.remaining_qty -= qty;
+        self.status = if self.remaining_qty == 0 {
+            OrderStatus::Filled
+        } else {
+            OrderStatus::Partial
+        };
+    }
+
+    /// Ends a live order; whatever is unfilled stays in `remaining_qty`.
+    pub(crate) fn cancel(&mut self) {
+        self.status = OrderStatus::Cancelled;
+    }
 }
 
 /// An instruction to the exchange. Every command is sequenced and journalled.
