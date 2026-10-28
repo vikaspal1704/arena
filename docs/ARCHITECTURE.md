@@ -8,8 +8,10 @@ The design in one sentence: **the exchange's state is a pure function of a journ
 
 | Component | Where | Responsibility |
 |-----------|-------|----------------|
-| `Engine` | `crates/engine/src/engine.rs` | Matching: price-time priority, limit / market (IOC) / cancel. Emits events; never panics on bad input. |
-| `BookSide` | `book.rs` | One side of the book: `BTreeMap<Price, Level>`, each level a FIFO `VecDeque` of order ids. |
+| `Engine` | `crates/engine/src/engine.rs` | Validates commands, runs the matching loop (price-time priority; limit / market (IOC) / cancel) and emits events. Never panics on bad input. Coordinates the types below; never edits their fields directly. |
+| `Book`, `BookSide`, `Level` | `book.rs` | Both sides of the book; each side a `BTreeMap<Price, Level>`, each level a FIFO `VecDeque` of order ids with running totals. A level's totals change only through `BookSide` methods, which also drop a level once it is empty. |
+| `OrderStore` | `orders.rs` | Every accepted order, by dense id. Checked lookup for ids from outside (wasm32-safe), direct access for ids the engine issued. |
+| `Order` | `types.rs` | Changes state only through `fill` and `cancel`; callers get read-only `&Order`. |
 | `Exchange` | `exchange.rs` | Sequencer: numbers, timestamps and journals each command, applies it, extends the fingerprint chain. Replays any prefix. |
 | `Sim` | `sim.rs` | Hidden fair value plus bots, driven by one seeded generator. |
 | wasm bindings | `crates/wasm` | Plain `extern "C"` exports and a shared output buffer. |
@@ -49,6 +51,10 @@ Ids are dense, so `orders[id - 1]` is both the index and the archive: O(1) looku
 ### 3.2 Lazy cancels
 
 A cancel marks the order cancelled and adjusts its level's quantity and live count at once, but leaves the id in the level's queue. Matching pops such tombstones when they reach the front; a level is removed (with its tombstones) as soon as it has no live orders. So cancel is O(log levels), market data is always exact, and queue order is never disturbed. The worst case is a level holding many tombstones, which are cleared in one pass the next time it trades or empties.
+
+### 3.2a Each type owns its invariants
+
+The engine never edits a level's totals or an order's status by hand: `Level` keeps its quantity and live count private and `BookSide` changes them (and removes empty levels) in one place; `Order::fill` and `Order::cancel` keep status and remaining quantity consistent. There are no traits: each concept has exactly one implementation, and a trait would add indirection with no second user. Self-trade prevention is an enum with a method (`blocks`) rather than a trait object, so the configuration stays `Copy` and deterministic.
 
 ### 3.3 `BTreeMap` price levels
 

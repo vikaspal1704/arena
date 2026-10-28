@@ -14,17 +14,18 @@ It prints `PASS` / `FAIL` / `SKIP` per claim and exits non-zero on any failure. 
 
 Optional prerequisites: `rustup target add wasm32-unknown-unknown` and `node` for the WebAssembly claims, and `pip install git+https://github.com/vikaspal1704/mini-matching-engine` for the differential test. Without them those checks show `SKIP`, never `PASS`.
 
-The mutation mode copies the repository into a temporary git worktree, applies one deliberate bug at a time, and requires the relevant tests to fail: naive one-to-one matching (an order stops after its first trade), a cancel that leaves the level total unchanged, trades printed at the taker's price, newest-first queues, a fingerprint that ignores timestamps, a missing owner check, and self-trade prevention on by default. Your working tree is not touched.
+The mutation mode copies the last commit into a temporary git worktree (commit before running it), applies one deliberate bug at a time, and requires the relevant tests to fail: naive one-to-one matching (an order stops after its first trade), a cancel that leaves the level total unchanged, trades printed at the taker's price, newest-first queues, a fingerprint that ignores timestamps, a missing owner check, and self-trade prevention on by default. Your working tree is not touched.
 
 ## 2. Reading order
 
-About 1,750 lines of engine code (including its unit tests), then about 900 lines of integration tests.
+About 1,900 lines of engine code (including its unit tests), then about 900 lines of integration tests.
 
 | # | File | Lines | What to look at |
 |---|------|-------|-----------------|
-| 1 | `crates/engine/src/types.rs` | 144 | Integer prices and quantities, `Command`, `Event`. Events are the only output. |
-| 2 | `crates/engine/src/book.rs` | 85 | One side of the book: `BTreeMap<Price, Level>`, each level a FIFO `VecDeque` of ids with a running `qty` and `live` count. `prune` drops a level as soon as it has no live orders. |
-| 3 | `crates/engine/src/engine.rs` | 565 | The matcher. `apply` (l. 112) validates, then `accept` and `match_order` (l. 206); `cancel` (l. 310) is lazy; `emit_levels` (l. 342) publishes L2. `check_invariants` (l. 458) is what the random tests call. |
+| 1 | `crates/engine/src/types.rs` | 192 | Integer prices and quantities, `Command`, `Event`. Events are the only output. `Order::crosses` (l. 81), `fill` (l. 89) and `cancel` (l. 99) are the only ways an order changes. |
+| 2 | `crates/engine/src/book.rs` | 234 | `Level` (l. 21, private totals), `BookSide` (l. 65): `add`, `fill_front` (l. 131) and `cancel` (l. 146) update a level and drop it once empty; `Book` (l. 166) holds both sides. |
+| 2a | `crates/engine/src/orders.rs` | 79 | `OrderStore`: the archive by dense id; `get` is checked for ids from outside, `issued` is for ids the engine created. |
+| 3 | `crates/engine/src/engine.rs` | 556 | The coordinator. `apply` (l. 137) dispatches to `limit` (l. 159), `market` (l. 182) and `cancel` (l. 211); `match_order` (l. 305) is the matching loop; `publish_levels` (l. 367) emits L2. `check_invariants` (l. 456) recomputes every level from the orders. |
 | 4 | `crates/engine/src/exchange.rs` | 272 | The sequencer: journal before apply (`submit`, l. 74), the fingerprint chain (`fingerprint`, l. 126), `replay` (l. 86). `event_words` (l. 171) is also the wasm wire format. |
 | 5 | `crates/engine/src/hash.rs` | 38 | FNV-1a over 64-bit words. Not cryptographic, and the docs say so. |
 | 6 | `crates/engine/src/workload.rs` | 244 | Benchmark mixes, generated against a shadow engine so cancels target live orders. |
@@ -37,16 +38,16 @@ Tests: `crates/engine/tests/scenarios.rs` (realistic matching scenarios with ful
 
 | Claim (README / docs) | Where it lives | Checked by |
 |---|---|---|
-| Real matching, not one-to-one: one order trades with many resting orders across levels, both sides fill partially | `match_order`, `engine.rs` l. 206 | `scenarios.rs` (complete event streams); `--mutations` makes the engine stop after one trade and requires the scenarios to fail |
+| Real matching, not one-to-one: one order trades with many resting orders across levels, both sides fill partially | `match_order`, `engine.rs` l. 305 | `scenarios.rs` (complete event streams); `--mutations` makes the engine stop after one trade and requires the scenarios to fail |
 | Price-time priority; trades at the resting price; partly filled orders keep their place | `match_order` | `many_small_orders_fill_one_large_order_which_keeps_its_place`, `price_priority_then_time_priority`; property `traded_quantity_is_conserved`; difftest |
-| Lazy cancels: O(log levels), queue order kept | `cancel`, l. 310; tombstone skip, l. 241 | `cancel_skips_the_order_and_keeps_queue_order`; `tombstones_accumulate_until_the_level_empties` |
-| Never panics on bad input; ids from outside never alias another order | validation, l. 168–175; `slot` (checked `try_from`, so a large id cannot wrap on 32-bit wasm) | property `arbitrary_commands_never_panic` (any value in every field), `extreme_values_are_rejected_or_handled` |
-| Book never crossed; level totals exact | `check_invariants`, l. 458 | `invariants_hold_over_random_streams` (400k commands); property `book_is_never_crossed_and_levels_equal_their_live_orders`, which recomputes from the public API in `u128` |
+| Lazy cancels: O(log levels), queue order kept | `Engine::cancel`, l. 211; `BookSide::cancel`, `book.rs` l. 146; tombstone skip in `match_order` | `cancel_skips_the_order_and_keeps_queue_order`; `tombstones_accumulate_until_the_level_empties` |
+| Never panics on bad input; ids from outside never alias another order | `validate_price` / `validate_qty` in `engine.rs`; `OrderStore::get` (checked `try_from`, so a large id cannot wrap on 32-bit wasm) | property `arbitrary_commands_never_panic` (any value in every field), `extreme_values_are_rejected_or_handled` |
+| Book never crossed; level totals exact | `check_invariants`, l. 456 | `invariants_hold_over_random_streams` (400k commands); property `book_is_never_crossed_and_levels_equal_their_live_orders`, which recomputes from the public API in `u128` |
 | Matches the reference engine | `difftest/` | `python difftest/compare.py --seeds 1-300 --count 5000` → `963,654 trades`, every command equal |
 | Deterministic; replays are exact | no floats, clocks, hash maps or `unsafe` in `crates/engine/src` (the script greps for them) | property `replaying_the_journal_reproduces_every_fingerprint`; `replay.rs`; pinned fingerprint `8d44c209bd24be3e` native (CI) and wasm (`web/tests/unit/core.test.ts`) |
 | No dependencies | `crates/engine/Cargo.toml` (proptest is dev-only) | `cargo tree -p arena-engine -e normal` |
 | wasm module under 90 KB, no JavaScript glue | `crates/wasm` | the script: size, and `WebAssembly.Module.imports` is `[]` |
-| Self-trade prevention, off by default | `SelfTradePrevention`, l. 41; check at l. 244 | six `stp_*` tests; random invariants in both modes; difftest confirms the default |
+| Self-trade prevention, off by default | `SelfTradePrevention`, l. 48; `blocks`, l. 65 | six `stp_*` tests; random invariants in both modes; difftest confirms the default |
 | Benchmark cancels hit live orders | `workload.rs` `Generator::push`, l. 148 | `every_cancel_targets_a_live_order`; the benchmark fails at ≥2% rejected |
 | Benchmark numbers | `crates/bench`, `web/scripts/bench-wasm.mjs` | counts and fingerprints asserted by the script; timings in `docs/BENCHMARKS.md`, host-dependent |
 | Memory per order / command | `Order`, `JournalEntry` | `memory_per_order_and_journal_entry_is_as_documented` |
