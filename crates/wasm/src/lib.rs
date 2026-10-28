@@ -213,11 +213,14 @@ pub extern "C" fn arena_fair() -> f64 {
 }
 
 /// Fingerprint after journal entry `seq` as two 32-bit halves in the buffer.
+/// Returns 0 (and writes nothing) if there is no entry `seq` yet.
 #[no_mangle]
 pub extern "C" fn arena_fingerprint(seq: f64) -> u32 {
     with(|st| {
-        let f = st.sim.exchange().fingerprint_at(seq as u64);
         st.out.clear();
+        let Some(f) = st.sim.exchange().fingerprint_at(seq as u64) else {
+            return 0;
+        };
         st.out.extend([(f >> 32) as f64, (f & 0xffff_ffff) as f64]);
         1
     })
@@ -233,7 +236,7 @@ pub extern "C" fn arena_replay(upto: f64) -> u32 {
         let upto = (upto as u64).min(ex.seq());
         let replay = Exchange::replay(ex.engine().config(), ex.journal(), upto as usize);
         let f = replay.fingerprint();
-        let matches = f == ex.fingerprint_at(upto);
+        let matches = Some(f) == ex.fingerprint_at(upto);
         st.replay = Some(replay);
         st.out.clear();
         st.out.extend([

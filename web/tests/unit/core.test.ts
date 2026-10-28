@@ -53,6 +53,24 @@ describe('engine in WebAssembly', () => {
     expect(core.queueAhead(id)).toEqual({ orders: bestBid.orders, qty: bestBid.qty });
   });
 
+  it('a_large_order_id_never_wraps_onto_a_real_order', () => {
+    // wasm32 has 32-bit pointers: an id cast with `as usize` would wrap
+    // 2^32 + n onto order n. It must be an unknown order instead.
+    core.start(11);
+    const [accepted] = core.limit('BUY', 1_000_000, 75); // far below the market: rests
+    const id = (accepted as Extract<ArenaEvent, { kind: 'accepted' }>).orderId;
+    expect(core.cancel(id + 2 ** 32)).toEqual([expect.objectContaining({ kind: 'rejected', reason: 'UNKNOWN_ORDER' })]);
+    expect(core.queueAhead(id + 2 ** 32)).toBeNull();
+    expect(core.queueAhead(id)).not.toBeNull();
+  });
+
+  it('fingerprint_of_a_future_entry_is_an_error_not_a_crash', () => {
+    core.start(12);
+    core.step(100);
+    expect(() => core.fingerprint(core.seq() + 1)).toThrow(RangeError);
+    expect(core.fingerprint()).toMatch(/^[0-9a-f]{16}$/); // the module is still alive
+  });
+
   it('rejects_off_tick_prices', () => {
     core.start(1);
     expect(core.limit('BUY', 2_400_003, 75)).toEqual([expect.objectContaining({ kind: 'rejected', reason: 'BAD_PRICE' })]);

@@ -11,7 +11,7 @@ fn replaying_any_prefix_gives_the_same_fingerprint_and_book() {
     for upto in [0usize, 1, 17, 500, ex.journal().len()] {
         let replayed = Exchange::replay(config, ex.journal(), upto);
         assert_eq!(
-            replayed.fingerprint(),
+            Some(replayed.fingerprint()),
             ex.fingerprint_at(upto as u64),
             "prefix {upto}"
         );
@@ -19,6 +19,23 @@ fn replaying_any_prefix_gives_the_same_fingerprint_and_book() {
     let full = Exchange::replay(config, ex.journal(), usize::MAX);
     assert_eq!(full.engine().book_hash(), ex.engine().book_hash());
     assert_eq!(full.engine().depth(10), ex.engine().depth(10));
+}
+
+#[test]
+fn there_is_no_fingerprint_for_an_entry_not_yet_journalled() {
+    let mut ex = Exchange::new(EngineConfig::default());
+    assert_eq!(ex.fingerprint_at(0), Some(0));
+    assert_eq!(ex.fingerprint_at(1), None);
+    ex.submit(
+        0,
+        Command::Cancel {
+            owner: 0,
+            order_id: 1,
+        },
+    );
+    assert!(ex.fingerprint_at(1).is_some());
+    assert_eq!(ex.fingerprint_at(2), None);
+    assert_eq!(ex.fingerprint_at(u64::MAX), None);
 }
 
 #[test]

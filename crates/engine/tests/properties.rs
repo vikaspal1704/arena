@@ -194,7 +194,7 @@ proptest! {
             prop_assert_eq!(entry.seq, i as u64 + 1);
             let ev = replay.submit(entry.ts_ms, entry.cmd);
             prop_assert_eq!(ev, &events[i][..]);
-            prop_assert_eq!(replay.fingerprint(), live.fingerprint_at(entry.seq));
+            prop_assert_eq!(Some(replay.fingerprint()), live.fingerprint_at(entry.seq));
         }
         let full = Exchange::replay(c, live.journal(), usize::MAX);
         prop_assert_eq!(full.fingerprint(), live.fingerprint());

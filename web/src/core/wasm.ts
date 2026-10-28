@@ -161,7 +161,7 @@ export class ArenaCore {
 
   /** Fingerprint after journal entry `seq`, as 16 hex digits. */
   fingerprint(seq = this.seq()): string {
-    this.x.arena_fingerprint(seq);
+    if (this.x.arena_fingerprint(seq) === 0) throw new RangeError(`no journal entry ${seq}`);
     const v = this.view(2);
     return hex(v[0]!, v[1]!);
   }

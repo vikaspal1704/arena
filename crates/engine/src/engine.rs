@@ -124,11 +124,11 @@ impl Engine {
                 }
                 let id = self.accept(owner, side, price, qty, false, out);
                 self.match_order(id, out);
-                let order = &self.orders[(id - 1) as usize];
+                let order = &self.orders[idx(id)];
                 if order.status.is_live() {
                     let (side, price, rem) = (order.side, order.price, order.remaining_qty);
                     self.side_mut(side).push(price, id, rem);
-                    self.touch(side, price);
+                    touch(&mut self.touched, side, price);
                 }
             }
             Command::Market { owner, side, qty } => {
@@ -144,7 +144,7 @@ impl Engine {
                 };
                 let id = self.accept(owner, side, price, qty, true, out);
                 self.match_order(id, out);
-                let order = &mut self.orders[(id - 1) as usize];
+                let order = &mut self.orders[idx(id)];
                 if order.status.is_live() {
                     order.status = OrderStatus::Cancelled;
                     out.push(Event::Done {
@@ -214,7 +214,7 @@ impl Engine {
         } = self;
         let mut self_trade = false;
         let (taker_side, limit, taker_owner) = {
-            let t = &orders[(taker_id - 1) as usize];
+            let t = &orders[idx(taker_id)];
             (t.side, t.price, t.owner)
         };
         let book = match taker_side {
@@ -222,7 +222,7 @@ impl Engine {
             Side::Sell => bids,
         };
         loop {
-            let taker_rem = orders[(taker_id - 1) as usize].remaining_qty;
+            let taker_rem = orders[idx(taker_id)].remaining_qty;
             if taker_rem == 0 {
                 break;
             }
@@ -236,7 +236,7 @@ impl Engine {
             }
             let level = book.level_mut(best).expect("best level exists");
             let maker_id = *level.queue.front().expect("a live level has a queue");
-            let maker = &mut orders[(maker_id - 1) as usize];
+            let maker = &mut orders[idx(maker_id)];
             if !maker.status.is_live() {
                 level.queue.pop_front(); // tombstone of a cancelled order
                 continue;
@@ -258,7 +258,7 @@ impl Engine {
             } else {
                 maker.status = OrderStatus::Partial;
             }
-            let taker = &mut orders[(taker_id - 1) as usize];
+            let taker = &mut orders[idx(taker_id)];
             taker.remaining_qty -= qty;
             taker.status = if taker.remaining_qty == 0 {
                 OrderStatus::Filled
@@ -285,12 +285,10 @@ impl Engine {
                     remaining_qty: 0,
                 });
             }
-            if !touched.contains(&(taker_side.opposite(), best)) {
-                touched.push((taker_side.opposite(), best));
-            }
+            touch(touched, taker_side.opposite(), best);
             book.prune(best);
         }
-        let taker = &mut orders[(taker_id - 1) as usize];
+        let taker = &mut orders[idx(taker_id)];
         if self_trade {
             taker.status = OrderStatus::Cancelled;
             out.push(Event::Done {
@@ -315,8 +313,9 @@ impl Engine {
         order_id: OrderId,
         out: &mut Vec<Event>,
     ) -> Result<(), RejectReason> {
-        let idx = order_id.checked_sub(1).ok_or(RejectReason::UnknownOrder)? as usize;
-        let order = self.orders.get_mut(idx).ok_or(RejectReason::UnknownOrder)?;
+        let order = slot(order_id)
+            .and_then(|i| self.orders.get_mut(i))
+            .ok_or(RejectReason::UnknownOrder)?;
         if !order.status.is_live() {
             return Err(RejectReason::NotCancellable);
         }
@@ -336,14 +335,8 @@ impl Engine {
         level.qty -= rem;
         level.live -= 1;
         book.prune(price);
-        self.touch(side, price);
+        touch(&mut self.touched, side, price);
         Ok(())
-    }
-
-    fn touch(&mut self, side: Side, price: Price) {
-        if !self.touched.contains(&(side, price)) {
-            self.touched.push((side, price));
-        }
     }
 
     fn emit_levels(&mut self, out: &mut Vec<Event>) {
@@ -376,7 +369,7 @@ impl Engine {
     }
 
     pub fn order(&self, id: OrderId) -> Option<&Order> {
-        id.checked_sub(1).and_then(|i| self.orders.get(i as usize))
+        slot(id).and_then(|i| self.orders.get(i))
     }
 
     pub fn order_count(&self) -> usize {
@@ -417,7 +410,7 @@ impl Engine {
             .map(|l| {
                 l.queue
                     .iter()
-                    .map(|id| &self.orders[(*id - 1) as usize])
+                    .map(|id| &self.orders[idx(*id)])
                     .filter(|o| o.status.is_live())
                     .collect()
             })
@@ -431,7 +424,7 @@ impl Engine {
         let level = self.side(order.side).level(order.price)?;
         let (mut n, mut qty) = (0u32, 0);
         for other in level.queue.iter().take_while(|o| **o != id) {
-            let o = &self.orders[(*other - 1) as usize];
+            let o = &self.orders[idx(*other)];
             if o.status.is_live() {
                 n += 1;
                 qty += o.remaining_qty;
@@ -450,7 +443,7 @@ impl Engine {
                 h.write(tag);
                 h.write(*price as u64);
                 for id in &level.queue {
-                    let o = &self.orders[(*id - 1) as usize];
+                    let o = &self.orders[idx(*id)];
                     if o.status.is_live() {
                         h.write(o.id);
                         h.write(o.remaining_qty);
@@ -473,7 +466,7 @@ impl Engine {
                 let live: Vec<_> = level
                     .queue
                     .iter()
-                    .map(|id| &self.orders[(*id - 1) as usize])
+                    .map(|id| &self.orders[idx(*id)])
                     .filter(|o| o.status.is_live())
                     .collect();
                 if live.is_empty() {
@@ -506,6 +499,27 @@ impl Engine {
             }
         }
         Ok(())
+    }
+}
+
+/// Where order `id` lives in `Engine::orders`. Only for ids this engine
+/// issued, which are always in range.
+fn idx(id: OrderId) -> usize {
+    (id - 1) as usize
+}
+
+/// Where an order id from outside the engine would live in
+/// `Engine::orders`, if it can exist. `try_from`, not `as`: `usize` is 32
+/// bits on wasm32, where a cast would wrap a large id onto a real order.
+fn slot(id: OrderId) -> Option<usize> {
+    usize::try_from(id.checked_sub(1)?).ok()
+}
+
+/// Records that a level changed in this command (published once, in
+/// first-touched order, by `emit_levels`).
+fn touch(touched: &mut Vec<(Side, Price)>, side: Side, price: Price) {
+    if !touched.contains(&(side, price)) {
+        touched.push((side, price));
     }
 }
 

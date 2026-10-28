@@ -103,12 +103,14 @@ impl Exchange {
         &self.events
     }
 
-    /// Fingerprint after journal entry `seq` (0 = before anything).
-    pub fn fingerprint_at(&self, seq: u64) -> u64 {
-        if seq == 0 {
-            0
-        } else {
-            self.chain[(seq - 1) as usize]
+    /// Fingerprint after journal entry `seq` (0 = before anything), or
+    /// `None` if there is no such entry yet.
+    pub fn fingerprint_at(&self, seq: u64) -> Option<u64> {
+        match seq.checked_sub(1) {
+            None => Some(0),
+            Some(i) => usize::try_from(i)
+                .ok()
+                .and_then(|i| self.chain.get(i).copied()),
         }
     }
 
