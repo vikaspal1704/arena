@@ -14,7 +14,7 @@ It prints `PASS` / `FAIL` / `SKIP` per claim and exits non-zero on any failure. 
 
 Optional prerequisites: `rustup target add wasm32-unknown-unknown` and `node` for the WebAssembly claims, and `pip install git+https://github.com/vikaspal1704/mini-matching-engine` for the differential test. Without them those checks show `SKIP`, never `PASS`.
 
-The mutation mode copies the repository into a temporary git worktree, applies one deliberate bug at a time, and requires the relevant tests to fail: a cancel that leaves the level total unchanged, trades printed at the taker's price, newest-first queues, a fingerprint that ignores timestamps, a missing owner check, and self-trade prevention on by default. Your working tree is not touched.
+The mutation mode copies the repository into a temporary git worktree, applies one deliberate bug at a time, and requires the relevant tests to fail: naive one-to-one matching (an order stops after its first trade), a cancel that leaves the level total unchanged, trades printed at the taker's price, newest-first queues, a fingerprint that ignores timestamps, a missing owner check, and self-trade prevention on by default. Your working tree is not touched.
 
 ## 2. Reading order
 
@@ -24,23 +24,24 @@ About 1,750 lines of engine code (including its unit tests), then about 900 line
 |---|------|-------|-----------------|
 | 1 | `crates/engine/src/types.rs` | 144 | Integer prices and quantities, `Command`, `Event`. Events are the only output. |
 | 2 | `crates/engine/src/book.rs` | 85 | One side of the book: `BTreeMap<Price, Level>`, each level a FIFO `VecDeque` of ids with a running `qty` and `live` count. `prune` drops a level as soon as it has no live orders. |
-| 3 | `crates/engine/src/engine.rs` | 551 | The matcher. `apply` (l. 112) validates, then `accept` and `match_order` (l. 206); `cancel` (l. 312) is lazy; `emit_levels` (l. 349) publishes L2. `check_invariants` (l. 465) is what the random tests call. |
-| 4 | `crates/engine/src/exchange.rs` | 270 | The sequencer: journal before apply (`submit`, l. 74), the fingerprint chain (`fingerprint`, l. 124), `replay` (l. 86). `event_words` (l. 169) is also the wasm wire format. |
+| 3 | `crates/engine/src/engine.rs` | 565 | The matcher. `apply` (l. 112) validates, then `accept` and `match_order` (l. 206); `cancel` (l. 310) is lazy; `emit_levels` (l. 342) publishes L2. `check_invariants` (l. 458) is what the random tests call. |
+| 4 | `crates/engine/src/exchange.rs` | 272 | The sequencer: journal before apply (`submit`, l. 74), the fingerprint chain (`fingerprint`, l. 126), `replay` (l. 86). `event_words` (l. 171) is also the wasm wire format. |
 | 5 | `crates/engine/src/hash.rs` | 38 | FNV-1a over 64-bit words. Not cryptographic, and the docs say so. |
 | 6 | `crates/engine/src/workload.rs` | 244 | Benchmark mixes, generated against a shadow engine so cancels target live orders. |
 | 7 | `crates/engine/src/sim.rs` | 394 | Seeded bots; only matters for the web demo and the CI fingerprint. |
 | 8 | `crates/wasm/src/lib.rs` | 311 | `extern "C"` exports and an `f64` output buffer. |
 
-Tests: `crates/engine/tests/matching.rs` (rules, self-trade prevention, invariants over random streams), `properties.rs` (proptest), `replay.rs` (journal and simulation), and unit tests inside `engine.rs` and `workload.rs`. Differential test: `crates/difftest/src/main.rs` emits commands and results; `difftest/compare.py` replays them through the Python reference.
+Tests: `crates/engine/tests/scenarios.rs` (realistic matching scenarios with full event streams; start here), `matching.rs` (rules, self-trade prevention, invariants over random streams), `properties.rs` (proptest), `replay.rs` (journal and simulation), and unit tests inside `engine.rs` and `workload.rs`. Differential test: `crates/difftest/src/main.rs` emits commands and results; `difftest/compare.py` replays them through the Python reference.
 
 ## 3. Claims, code and proof
 
 | Claim (README / docs) | Where it lives | Checked by |
 |---|---|---|
-| Price-time priority; trades at the resting price | `match_order`, `engine.rs` l. 206 | `price_priority_then_time_priority`, `trades_at_the_resting_price`; property `traded_quantity_is_conserved`; difftest |
-| Lazy cancels: O(log levels), queue order kept | `cancel`, l. 312; tombstone skip, l. 240 | `cancel_skips_the_order_and_keeps_queue_order`; `tombstones_accumulate_until_the_level_empties` |
-| Never panics on bad input | validation, l. 168–175; checked index arithmetic in `cancel` | property `arbitrary_commands_never_panic` (any value in every field), `extreme_values_are_rejected_or_handled` |
-| Book never crossed; level totals exact | `check_invariants`, l. 465 | `invariants_hold_over_random_streams` (400k commands); property `book_is_never_crossed_and_levels_equal_their_live_orders`, which recomputes from the public API in `u128` |
+| Real matching, not one-to-one: one order trades with many resting orders across levels, both sides fill partially | `match_order`, `engine.rs` l. 206 | `scenarios.rs` (complete event streams); `--mutations` makes the engine stop after one trade and requires the scenarios to fail |
+| Price-time priority; trades at the resting price; partly filled orders keep their place | `match_order` | `many_small_orders_fill_one_large_order_which_keeps_its_place`, `price_priority_then_time_priority`; property `traded_quantity_is_conserved`; difftest |
+| Lazy cancels: O(log levels), queue order kept | `cancel`, l. 310; tombstone skip, l. 241 | `cancel_skips_the_order_and_keeps_queue_order`; `tombstones_accumulate_until_the_level_empties` |
+| Never panics on bad input; ids from outside never alias another order | validation, l. 168–175; `slot` (checked `try_from`, so a large id cannot wrap on 32-bit wasm) | property `arbitrary_commands_never_panic` (any value in every field), `extreme_values_are_rejected_or_handled` |
+| Book never crossed; level totals exact | `check_invariants`, l. 458 | `invariants_hold_over_random_streams` (400k commands); property `book_is_never_crossed_and_levels_equal_their_live_orders`, which recomputes from the public API in `u128` |
 | Matches the reference engine | `difftest/` | `python difftest/compare.py --seeds 1-300 --count 5000` → `963,654 trades`, every command equal |
 | Deterministic; replays are exact | no floats, clocks, hash maps or `unsafe` in `crates/engine/src` (the script greps for them) | property `replaying_the_journal_reproduces_every_fingerprint`; `replay.rs`; pinned fingerprint `8d44c209bd24be3e` native (CI) and wasm (`web/tests/unit/core.test.ts`) |
 | No dependencies | `crates/engine/Cargo.toml` (proptest is dev-only) | `cargo tree -p arena-engine -e normal` |

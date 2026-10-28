@@ -60,7 +60,7 @@ if rustup target list --installed 2>/dev/null | grep -q wasm32-unknown-unknown &
   cargo build -q --release -p arena-wasm --target wasm32-unknown-unknown
   wasm=target/wasm32-unknown-unknown/release/arena_wasm.wasm
   bytes=$(wc -c <"$wasm")
-  # The exact size depends on the Rust version (83,342 bytes with rustc
+  # The exact size depends on the Rust version (83,292 bytes with rustc
   # 1.97.0, 84,332 with a newer stable), so the claim is a bound.
   rustc_v=$(rustc --version | cut -d' ' -f2)
   if [ "$bytes" -lt $((90 * 1024)) ]; then
@@ -125,6 +125,9 @@ if [ "$MUTATIONS" -eq 1 ]; then
   mutate "proptest catches trades printed at the taker's price" \
     's/                price: best,/                price: if limit == Price::MAX || limit == 1 { best } else { limit },/' \
     crates/engine/src/engine.rs "$props"
+  mutate "scenario tests catch naive one-to-one matching (an order stops after its first trade)" \
+    's/^            book.prune(best);$/            book.prune(best);\n            break;/' crates/engine/src/engine.rs \
+    "cargo test -q --release -p arena-engine --test scenarios"
   mutate "unit tests catch time priority broken (newest first)" \
     's/        level.queue.push_back(id);/        level.queue.push_front(id);/' crates/engine/src/book.rs \
     "cargo test -q --release -p arena-engine --test matching"

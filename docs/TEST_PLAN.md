@@ -16,6 +16,14 @@ Every test below runs in CI (`.github/workflows/ci.yml`).
 | `rejects_change_nothing` | Bad price, off-tick, zero / oversized qty, unknown order: `Rejected`, no id used |
 | `only_the_owner_can_cancel_and_only_once` | `NotOwner`, `NotCancellable` |
 | `queue_shows_live_orders_front_first` | Queue view and `queue_ahead` ignore cancelled orders |
+| `one_order_sweeps_several_levels_and_rests_the_remainder_at_its_limit` | Scenario (`tests/scenarios.rs`): one buy trades with three sells on two levels and rests the rest at its own limit; the complete event stream, market data included, is asserted |
+| `a_sell_takes_the_highest_bids_first` | Scenario: mirror image; the partly filled bid stays at the front |
+| `many_small_orders_fill_one_large_order_which_keeps_its_place` | Scenario: a large resting order keeps queue priority through partial fills; a later order at the same price waits |
+| `an_aggressive_order_gets_the_resting_price` | Scenario: price improvement goes to the aggressor |
+| `same_side_orders_never_trade_and_touching_orders_do` | Scenario: no same-side trades; a buy at exactly the best ask trades |
+| `cancelling_a_partly_filled_order_cancels_only_the_remainder` | Scenario: traded quantity stays traded |
+| `a_market_order_into_an_empty_book_expires` | Scenario: accepted, expires in full, nothing rests |
+| `there_is_no_fingerprint_for_an_entry_not_yet_journalled` | `fingerprint_at` past the journal is `None`, not a crash |
 | `without_stp_an_owner_trades_with_itself` | Default config: same-owner orders trade (reference behaviour) |
 | `stp_cancels_the_incoming_order_and_keeps_the_resting_one` | Cancel-newest: no trade, incoming `Done(SelfTrade)`, resting order and book untouched |
 | `stp_keeps_trades_made_before_reaching_the_own_order` | Trades with other owners first stand; orders behind the own order are not reached |
@@ -56,6 +64,8 @@ Every test below runs in CI (`.github/workflows/ci.yml`).
 | `player_orders_trade_and_the_journal_records_them` | Fill events and the journal row |
 | `shows_queue_position_of_a_resting_order` | Orders and quantity ahead |
 | `rejects_off_tick_prices` | Tick grid |
+| `a_large_order_id_never_wraps_onto_a_real_order` | On 32-bit wasm, cancelling or looking up id 2^32 + n is an unknown order, not order n |
+| `fingerprint_of_a_future_entry_is_an_error_not_a_crash` | A future sequence number throws `RangeError`; the module keeps working |
 | `feed_detects_gaps_and_recovers_from_snapshots_under_packet_loss` | 20% loss over 2,000 steps; client book ends equal to the engine's |
 | `ignores_deltas_already_in_the_snapshot` | Stale deltas skipped |
 | `fifo_round_trips_and_flips` | FIFO P&L, a flip from long to short, unrealised P&L |
